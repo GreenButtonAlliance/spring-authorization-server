@@ -36,7 +36,6 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
-import org.springframework.security.oauth2.core.OAuth2RefreshToken2;
 import org.springframework.security.oauth2.core.OAuth2TokenType;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
@@ -72,7 +71,7 @@ import static org.springframework.security.oauth2.server.authorization.authentic
  * @see <a target="_blank" href="https://tools.ietf.org/html/rfc6749#section-1.5">Section 1.5 Refresh Token Grant</a>
  * @see <a target="_blank" href="https://tools.ietf.org/html/rfc6749#section-6">Section 6 Refreshing an Access Token</a>
  */
-public class OAuth2RefreshTokenAuthenticationProvider implements AuthenticationProvider {
+public final class OAuth2RefreshTokenAuthenticationProvider implements AuthenticationProvider {
 	private static final OAuth2TokenType ID_TOKEN_TOKEN_TYPE = new OAuth2TokenType(OidcParameterNames.ID_TOKEN);
 	private static final StringKeyGenerator TOKEN_GENERATOR = new Base64StringKeyGenerator(Base64.getUrlEncoder().withoutPadding(), 96);
 	private final OAuth2AuthorizationService authorizationService;
@@ -94,7 +93,7 @@ public class OAuth2RefreshTokenAuthenticationProvider implements AuthenticationP
 		this.jwtEncoder = jwtEncoder;
 	}
 
-	public final void setJwtCustomizer(OAuth2TokenCustomizer<JwtEncodingContext> jwtCustomizer) {
+	public void setJwtCustomizer(OAuth2TokenCustomizer<JwtEncodingContext> jwtCustomizer) {
 		Assert.notNull(jwtCustomizer, "jwtCustomizer cannot be null");
 		this.jwtCustomizer = jwtCustomizer;
 	}
@@ -147,7 +146,7 @@ public class OAuth2RefreshTokenAuthenticationProvider implements AuthenticationP
 			scopes = authorizedScopes;
 		}
 
-		String issuer = this.providerSettings != null ? this.providerSettings.issuer() : null;
+		String issuer = this.providerSettings != null ? this.providerSettings.getIssuer() : null;
 
 		JoseHeader.Builder headersBuilder = JwtUtils.headers();
 		JwtClaimsSet.Builder claimsBuilder = JwtUtils.accessTokenClaims(
@@ -178,8 +177,8 @@ public class OAuth2RefreshTokenAuthenticationProvider implements AuthenticationP
 		TokenSettings tokenSettings = registeredClient.getTokenSettings();
 
 		OAuth2RefreshToken currentRefreshToken = refreshToken.getToken();
-		if (!tokenSettings.reuseRefreshTokens()) {
-			currentRefreshToken = generateRefreshToken(tokenSettings.refreshTokenTimeToLive());
+		if (!tokenSettings.isReuseRefreshTokens()) {
+			currentRefreshToken = generateRefreshToken(tokenSettings.getRefreshTokenTimeToLive());
 		}
 
 		Jwt jwtIdToken = null;
@@ -250,6 +249,6 @@ public class OAuth2RefreshTokenAuthenticationProvider implements AuthenticationP
 	static OAuth2RefreshToken generateRefreshToken(Duration tokenTimeToLive) {
 		Instant issuedAt = Instant.now();
 		Instant expiresAt = issuedAt.plus(tokenTimeToLive);
-		return new OAuth2RefreshToken2(TOKEN_GENERATOR.generateKey(), issuedAt, expiresAt);
+		return new OAuth2RefreshToken(TOKEN_GENERATOR.generateKey(), issuedAt, expiresAt);
 	}
 }

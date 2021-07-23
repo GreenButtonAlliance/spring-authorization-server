@@ -28,6 +28,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.ServletServerHttpResponse;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2AuthorizationServerMetadata;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationResponseType;
 import org.springframework.security.oauth2.core.http.converter.OAuth2AuthorizationServerMetadataHttpMessageConverter;
@@ -47,11 +48,11 @@ import org.springframework.web.util.UriComponentsBuilder;
  * @see ProviderSettings
  * @see <a target="_blank" href="https://tools.ietf.org/html/rfc8414#section-3">3. Obtaining Authorization Server Metadata</a>
  */
-public class OAuth2AuthorizationServerMetadataEndpointFilter extends OncePerRequestFilter {
+public final class OAuth2AuthorizationServerMetadataEndpointFilter extends OncePerRequestFilter {
 	/**
 	 * The default endpoint {@code URI} for OAuth 2.0 Authorization Server Metadata requests.
 	 */
-	public static final String DEFAULT_OAUTH2_AUTHORIZATION_SERVER_METADATA_ENDPOINT_URI = "/.well-known/oauth-authorization-server";
+	private static final String DEFAULT_OAUTH2_AUTHORIZATION_SERVER_METADATA_ENDPOINT_URI = "/.well-known/oauth-authorization-server";
 
 	private final ProviderSettings providerSettings;
 	private final RequestMatcher requestMatcher;
@@ -77,18 +78,18 @@ public class OAuth2AuthorizationServerMetadataEndpointFilter extends OncePerRequ
 		}
 
 		OAuth2AuthorizationServerMetadata authorizationServerMetadata = OAuth2AuthorizationServerMetadata.builder()
-				.issuer(this.providerSettings.issuer())
-				.authorizationEndpoint(asUrl(this.providerSettings.issuer(), this.providerSettings.authorizationEndpoint()))
-				.tokenEndpoint(asUrl(this.providerSettings.issuer(), this.providerSettings.tokenEndpoint()))
+				.issuer(this.providerSettings.getIssuer())
+				.authorizationEndpoint(asUrl(this.providerSettings.getIssuer(), this.providerSettings.getAuthorizationEndpoint()))
+				.tokenEndpoint(asUrl(this.providerSettings.getIssuer(), this.providerSettings.getTokenEndpoint()))
 				.tokenEndpointAuthenticationMethods(clientAuthenticationMethods())
-				.jwkSetUrl(asUrl(this.providerSettings.issuer(), this.providerSettings.jwkSetEndpoint()))
+				.jwkSetUrl(asUrl(this.providerSettings.getIssuer(), this.providerSettings.getJwkSetEndpoint()))
 				.responseType(OAuth2AuthorizationResponseType.CODE.getValue())
 				.grantType(AuthorizationGrantType.AUTHORIZATION_CODE.getValue())
 				.grantType(AuthorizationGrantType.CLIENT_CREDENTIALS.getValue())
 				.grantType(AuthorizationGrantType.REFRESH_TOKEN.getValue())
-				.tokenRevocationEndpoint(asUrl(this.providerSettings.issuer(), this.providerSettings.tokenRevocationEndpoint()))
+				.tokenRevocationEndpoint(asUrl(this.providerSettings.getIssuer(), this.providerSettings.getTokenRevocationEndpoint()))
 				.tokenRevocationEndpointAuthenticationMethods(clientAuthenticationMethods())
-				.tokenIntrospectionEndpoint(asUrl(this.providerSettings.issuer(), this.providerSettings.tokenIntrospectionEndpoint()))
+				.tokenIntrospectionEndpoint(asUrl(this.providerSettings.getIssuer(), this.providerSettings.getTokenIntrospectionEndpoint()))
 				.tokenIntrospectionEndpointAuthenticationMethods(clientAuthenticationMethods())
 				.codeChallengeMethod("plain")
 				.codeChallengeMethod("S256")
@@ -101,8 +102,8 @@ public class OAuth2AuthorizationServerMetadataEndpointFilter extends OncePerRequ
 
 	private static Consumer<List<String>> clientAuthenticationMethods() {
 		return (authenticationMethods) -> {
-			authenticationMethods.add("client_secret_basic");	// TODO: Use ClientAuthenticationMethod.CLIENT_SECRET_BASIC in Spring Security 5.5.0
-			authenticationMethods.add("client_secret_post");	// TODO: Use ClientAuthenticationMethod.CLIENT_SECRET_POST in Spring Security 5.5.0
+			authenticationMethods.add(ClientAuthenticationMethod.CLIENT_SECRET_BASIC.getValue());
+			authenticationMethods.add(ClientAuthenticationMethod.CLIENT_SECRET_POST.getValue());
 		};
 	}
 

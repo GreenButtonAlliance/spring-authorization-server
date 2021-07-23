@@ -52,7 +52,7 @@ import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
 import org.springframework.security.oauth2.core.OAuth2TokenIntrospection;
 import org.springframework.security.oauth2.core.OAuth2TokenType;
-import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames2;
+import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.core.http.converter.OAuth2TokenIntrospectionHttpMessageConverter;
 import org.springframework.security.oauth2.jose.TestJwks;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -109,7 +109,7 @@ public class OAuth2TokenIntrospectionTests {
 	public static void init() {
 		JWKSet jwkSet = new JWKSet(TestJwks.DEFAULT_RSA_JWK);
 		jwkSource = (jwkSelector, securityContext) -> jwkSelector.select(jwkSet);
-		providerSettings = new ProviderSettings().tokenIntrospectionEndpoint("/test/introspect");
+		providerSettings = ProviderSettings.builder().tokenIntrospectionEndpoint("/test/introspect").build();
 		db = new EmbeddedDatabaseBuilder()
 				.generateUniqueName(true)
 				.setType(EmbeddedDatabaseType.HSQL)
@@ -152,7 +152,7 @@ public class OAuth2TokenIntrospectionTests {
 		this.authorizationService.save(authorization);
 
 		// @formatter:off
-		MvcResult mvcResult = this.mvc.perform(post(providerSettings.tokenIntrospectionEndpoint())
+		MvcResult mvcResult = this.mvc.perform(post(providerSettings.getTokenIntrospectionEndpoint())
 				.params(getTokenIntrospectionRequestParameters(accessToken, OAuth2TokenType.ACCESS_TOKEN))
 				.with(httpBasic(introspectRegisteredClient.getClientId(), introspectRegisteredClient.getClientSecret())))
 				.andExpect(status().isOk())
@@ -167,7 +167,7 @@ public class OAuth2TokenIntrospectionTests {
 				accessToken.getIssuedAt().minusSeconds(1), accessToken.getIssuedAt().plusSeconds(1));
 		assertThat(tokenIntrospectionResponse.getExpiresAt()).isBetween(
 				accessToken.getExpiresAt().minusSeconds(1), accessToken.getExpiresAt().plusSeconds(1));
-		assertThat(tokenIntrospectionResponse.getScope()).containsExactlyInAnyOrderElementsOf(accessToken.getScopes());
+		assertThat(tokenIntrospectionResponse.getScopes()).containsExactlyInAnyOrderElementsOf(accessToken.getScopes());
 		assertThat(tokenIntrospectionResponse.getTokenType()).isEqualTo(accessToken.getTokenType().getValue());
 		assertThat(tokenIntrospectionResponse.getNotBefore()).isBetween(
 				tokenClaims.getNotBefore().minusSeconds(1), tokenClaims.getNotBefore().plusSeconds(1));
@@ -192,7 +192,7 @@ public class OAuth2TokenIntrospectionTests {
 		this.authorizationService.save(authorization);
 
 		// @formatter:off
-		MvcResult mvcResult = this.mvc.perform(post(providerSettings.tokenIntrospectionEndpoint())
+		MvcResult mvcResult = this.mvc.perform(post(providerSettings.getTokenIntrospectionEndpoint())
 				.params(getTokenIntrospectionRequestParameters(refreshToken, OAuth2TokenType.REFRESH_TOKEN))
 				.with(httpBasic(introspectRegisteredClient.getClientId(), introspectRegisteredClient.getClientSecret())))
 				.andExpect(status().isOk())
@@ -207,7 +207,7 @@ public class OAuth2TokenIntrospectionTests {
 				refreshToken.getIssuedAt().minusSeconds(1), refreshToken.getIssuedAt().plusSeconds(1));
 		assertThat(tokenIntrospectionResponse.getExpiresAt()).isBetween(
 				refreshToken.getExpiresAt().minusSeconds(1), refreshToken.getExpiresAt().plusSeconds(1));
-		assertThat(tokenIntrospectionResponse.getScope()).isNull();
+		assertThat(tokenIntrospectionResponse.getScopes()).isNull();
 		assertThat(tokenIntrospectionResponse.getTokenType()).isNull();
 		assertThat(tokenIntrospectionResponse.getNotBefore()).isNull();
 		assertThat(tokenIntrospectionResponse.getSubject()).isNull();
@@ -219,8 +219,8 @@ public class OAuth2TokenIntrospectionTests {
 	private static MultiValueMap<String, String> getTokenIntrospectionRequestParameters(AbstractOAuth2Token token,
 			OAuth2TokenType tokenType) {
 		MultiValueMap<String, String> parameters = new LinkedMultiValueMap<>();
-		parameters.set(OAuth2ParameterNames2.TOKEN, token.getTokenValue());
-		parameters.set(OAuth2ParameterNames2.TOKEN_TYPE_HINT, tokenType.getValue());
+		parameters.set(OAuth2ParameterNames.TOKEN, token.getTokenValue());
+		parameters.set(OAuth2ParameterNames.TOKEN_TYPE_HINT, tokenType.getValue());
 		return parameters;
 	}
 

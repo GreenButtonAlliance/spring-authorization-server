@@ -37,11 +37,9 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationResponse;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
-import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCodeRequestAuthenticationException;
-import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationException;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationToken;
-import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.web.authentication.OAuth2AuthorizationCodeRequestAuthenticationConverter;
 import org.springframework.security.web.DefaultRedirectStrategy;
 import org.springframework.security.web.RedirectStrategy;
@@ -75,11 +73,11 @@ import org.springframework.web.util.UriComponentsBuilder;
  * @see <a target="_blank" href="https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1">Section 4.1.1 Authorization Request</a>
  * @see <a target="_blank" href="https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2">Section 4.1.2 Authorization Response</a>
  */
-public class OAuth2AuthorizationEndpointFilter extends OncePerRequestFilter {
+public final class OAuth2AuthorizationEndpointFilter extends OncePerRequestFilter {
 	/**
 	 * The default endpoint {@code URI} for authorization requests.
 	 */
-	public static final String DEFAULT_AUTHORIZATION_ENDPOINT_URI = "/oauth2/authorize";
+	private static final String DEFAULT_AUTHORIZATION_ENDPOINT_URI = "/oauth2/authorize";
 
 	private final AuthenticationManager authenticationManager;
 	private final RequestMatcher authorizationEndpointMatcher;
@@ -88,33 +86,6 @@ public class OAuth2AuthorizationEndpointFilter extends OncePerRequestFilter {
 	private AuthenticationSuccessHandler authenticationSuccessHandler = this::sendAuthorizationResponse;
 	private AuthenticationFailureHandler authenticationFailureHandler = this::sendErrorResponse;
 	private String consentPage;
-
-	/**
-	 * Constructs an {@code OAuth2AuthorizationEndpointFilter} using the provided parameters.
-	 *
-	 * @param registeredClientRepository the repository of registered clients
-	 * @param authorizationService the authorization service
-	 * @deprecated use {@link #OAuth2AuthorizationEndpointFilter(AuthenticationManager)} instead.
-	 */
-	@Deprecated
-	public OAuth2AuthorizationEndpointFilter(RegisteredClientRepository registeredClientRepository,
-			OAuth2AuthorizationService authorizationService) {
-		this(null);
-	}
-
-	/**
-	 * Constructs an {@code OAuth2AuthorizationEndpointFilter} using the provided parameters.
-	 *
-	 * @param registeredClientRepository the repository of registered clients
-	 * @param authorizationService the authorization service
-	 * @param authorizationEndpointUri the endpoint {@code URI} for authorization requests
-	 * @deprecated use {@link #OAuth2AuthorizationEndpointFilter(AuthenticationManager, String)} instead.
-	 */
-	@Deprecated
-	public OAuth2AuthorizationEndpointFilter(RegisteredClientRepository registeredClientRepository,
-			OAuth2AuthorizationService authorizationService, String authorizationEndpointUri) {
-		this(null, authorizationEndpointUri);
-	}
 
 	/**
 	 * Constructs an {@code OAuth2AuthorizationEndpointFilter} using the provided parameters.
@@ -205,7 +176,7 @@ public class OAuth2AuthorizationEndpointFilter extends OncePerRequestFilter {
 	 *
 	 * @param authenticationConverter the {@link AuthenticationConverter} used when attempting to extract an Authorization Request (or Consent) from {@link HttpServletRequest}
 	 */
-	public final void setAuthenticationConverter(AuthenticationConverter authenticationConverter) {
+	public void setAuthenticationConverter(AuthenticationConverter authenticationConverter) {
 		Assert.notNull(authenticationConverter, "authenticationConverter cannot be null");
 		this.authenticationConverter = authenticationConverter;
 	}
@@ -216,7 +187,7 @@ public class OAuth2AuthorizationEndpointFilter extends OncePerRequestFilter {
 	 *
 	 * @param authenticationSuccessHandler the {@link AuthenticationSuccessHandler} used for handling an {@link OAuth2AuthorizationCodeRequestAuthenticationToken}
 	 */
-	public final void setAuthenticationSuccessHandler(AuthenticationSuccessHandler authenticationSuccessHandler) {
+	public void setAuthenticationSuccessHandler(AuthenticationSuccessHandler authenticationSuccessHandler) {
 		Assert.notNull(authenticationSuccessHandler, "authenticationSuccessHandler cannot be null");
 		this.authenticationSuccessHandler = authenticationSuccessHandler;
 	}
@@ -227,7 +198,7 @@ public class OAuth2AuthorizationEndpointFilter extends OncePerRequestFilter {
 	 *
 	 * @param authenticationFailureHandler the {@link AuthenticationFailureHandler} used for handling an {@link OAuth2AuthorizationCodeRequestAuthenticationException}
 	 */
-	public final void setAuthenticationFailureHandler(AuthenticationFailureHandler authenticationFailureHandler) {
+	public void setAuthenticationFailureHandler(AuthenticationFailureHandler authenticationFailureHandler) {
 		Assert.notNull(authenticationFailureHandler, "authenticationFailureHandler cannot be null");
 		this.authenticationFailureHandler = authenticationFailureHandler;
 	}
@@ -238,7 +209,7 @@ public class OAuth2AuthorizationEndpointFilter extends OncePerRequestFilter {
 	 *
 	 * @param consentPage the URI of the custom consent page to redirect to if consent is required (e.g. "/oauth2/consent")
 	 */
-	public final void setConsentPage(String consentPage) {
+	public void setConsentPage(String consentPage) {
 		this.consentPage = consentPage;
 	}
 
@@ -406,7 +377,7 @@ public class OAuth2AuthorizationEndpointFilter extends OncePerRequestFilter {
 			builder.append("                    <button class=\"btn btn-primary btn-lg\" type=\"submit\">Submit Consent</button>");
 			builder.append("                </div>");
 			builder.append("                <div class=\"form-group\">");
-			builder.append("                    <button class=\"btn btn-link regular\" type=\"submit\">Cancel</button>");
+			builder.append("                    <button class=\"btn btn-link regular\" type=\"reset\">Cancel</button>");
 			builder.append("                </div>");
 			builder.append("            </form>");
 			builder.append("        </div>");

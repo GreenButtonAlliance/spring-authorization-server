@@ -40,6 +40,8 @@ import org.springframework.security.oauth2.server.authorization.OAuth2Authorizat
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
+import org.springframework.security.oauth2.server.authorization.config.ClientSettings;
+import org.springframework.security.oauth2.server.authorization.config.TokenSettings;
 import org.springframework.security.oauth2.server.resource.authentication.AbstractOAuth2TokenAuthenticationToken;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
@@ -54,7 +56,7 @@ import org.springframework.util.CollectionUtils;
  * @see OAuth2AuthorizationService
  * @see <a href="https://openid.net/specs/openid-connect-registration-1_0.html#ClientRegistration">3. Client Registration Endpoint</a>
  */
-public class OidcClientRegistrationAuthenticationProvider implements AuthenticationProvider {
+public final class OidcClientRegistrationAuthenticationProvider implements AuthenticationProvider {
 	private static final StringKeyGenerator CLIENT_ID_GENERATOR = new Base64StringKeyGenerator(
 			Base64.getUrlEncoder().withoutPadding(), 32);
 	private static final StringKeyGenerator CLIENT_SECRET_GENERATOR = new Base64StringKeyGenerator(
@@ -141,12 +143,10 @@ public class OidcClientRegistrationAuthenticationProvider implements Authenticat
 				.clientSecret(CLIENT_SECRET_GENERATOR.generateKey())
 				.clientName(clientRegistration.getClientName());
 
-		if ("client_secret_post".equals(clientRegistration.getTokenEndpointAuthenticationMethod())) {
-			// TODO: Use ClientAuthenticationMethod.CLIENT_SECRET_POST in Spring Security 5.5.0
-			builder.clientAuthenticationMethod(ClientAuthenticationMethod.POST);
+		if (ClientAuthenticationMethod.CLIENT_SECRET_POST.getValue().equals(clientRegistration.getTokenEndpointAuthenticationMethod())) {
+			builder.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_POST);
 		} else {
-			// TODO: Use ClientAuthenticationMethod.CLIENT_SECRET_BASIC in Spring Security 5.5.0
-			builder.clientAuthenticationMethod(ClientAuthenticationMethod.BASIC);
+			builder.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC);
 		}
 
 		// TODO Validate redirect_uris and throw OAuth2ErrorCodes2.INVALID_REDIRECT_URI on error
@@ -171,13 +171,13 @@ public class OidcClientRegistrationAuthenticationProvider implements Authenticat
 		}
 
 		builder
-				.clientSettings(clientSettings ->
-						clientSettings
-								.requireProofKey(true)
-								.requireUserConsent(true))
-				.tokenSettings(tokenSettings ->
-						tokenSettings
-								.idTokenSignatureAlgorithm(SignatureAlgorithm.RS256));
+				.clientSettings(ClientSettings.builder()
+						.requireProofKey(true)
+						.requireAuthorizationConsent(true)
+						.build())
+				.tokenSettings(TokenSettings.builder()
+						.idTokenSignatureAlgorithm(SignatureAlgorithm.RS256)
+						.build());
 
 		return builder.build();
 		// @formatter:on
@@ -209,7 +209,7 @@ public class OidcClientRegistrationAuthenticationProvider implements Authenticat
 
 		builder
 				.tokenEndpointAuthenticationMethod(registeredClient.getClientAuthenticationMethods().iterator().next().getValue())
-				.idTokenSignedResponseAlgorithm(registeredClient.getTokenSettings().idTokenSignatureAlgorithm().getName());
+				.idTokenSignedResponseAlgorithm(registeredClient.getTokenSettings().getIdTokenSignatureAlgorithm().getName());
 
 		return builder.build();
 		// @formatter:on

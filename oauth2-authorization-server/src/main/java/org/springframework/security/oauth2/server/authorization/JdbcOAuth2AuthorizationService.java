@@ -48,20 +48,18 @@ import org.springframework.security.oauth2.core.AbstractOAuth2Token;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
-import org.springframework.security.oauth2.core.OAuth2RefreshToken2;
 import org.springframework.security.oauth2.core.OAuth2TokenType;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
-import org.springframework.security.oauth2.server.authorization.jackson2.OAuth2ServerJackson2Module;
+import org.springframework.security.oauth2.server.authorization.jackson2.OAuth2AuthorizationServerJackson2Module;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 /**
  * A JDBC implementation of an {@link OAuth2AuthorizationService} that uses a
- * <p>
  * {@link JdbcOperations} for {@link OAuth2Authorization} persistence.
  *
  * <p>
@@ -71,11 +69,11 @@ import org.springframework.util.StringUtils;
  * therefore MUST be defined in the database schema.
  *
  * @author Ovidiu Popa
+ * @since 0.1.2
  * @see OAuth2AuthorizationService
  * @see OAuth2Authorization
  * @see JdbcOperations
  * @see RowMapper
- * @since 0.1.2
  */
 public class JdbcOAuth2AuthorizationService implements OAuth2AuthorizationService {
 
@@ -110,8 +108,7 @@ public class JdbcOAuth2AuthorizationService implements OAuth2AuthorizationServic
 
 	private static final String PK_FILTER = "id = ?";
 	private static final String UNKNOWN_TOKEN_TYPE_FILTER = "state = ? OR authorization_code_value = ? OR " +
-			"access_token_value = ? OR " +
-			"refresh_token_value = ?";
+			"access_token_value = ? OR refresh_token_value = ?";
 
 	private static final String STATE_FILTER = "state = ?";
 	private static final String AUTHORIZATION_CODE_FILTER = "authorization_code_value = ?";
@@ -126,7 +123,7 @@ public class JdbcOAuth2AuthorizationService implements OAuth2AuthorizationServic
 
 	// @formatter:off
 	private static final String SAVE_AUTHORIZATION_SQL = "INSERT INTO " + TABLE_NAME
-			+ " (" + COLUMN_NAMES + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?)";
+			+ " (" + COLUMN_NAMES + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 	// @formatter:on
 
 	// @formatter:off
@@ -180,7 +177,6 @@ public class JdbcOAuth2AuthorizationService implements OAuth2AuthorizationServic
 	@Override
 	public void save(OAuth2Authorization authorization) {
 		Assert.notNull(authorization, "authorization cannot be null");
-
 		OAuth2Authorization existingAuthorization = findById(authorization.getId());
 		if (existingAuthorization == null) {
 			insertAuthorization(authorization);
@@ -320,7 +316,7 @@ public class JdbcOAuth2AuthorizationService implements OAuth2AuthorizationServic
 			ClassLoader classLoader = JdbcOAuth2AuthorizationService.class.getClassLoader();
 			List<Module> securityModules = SecurityJackson2Modules.getModules(classLoader);
 			this.objectMapper.registerModules(securityModules);
-			this.objectMapper.registerModule(new OAuth2ServerJackson2Module());
+			this.objectMapper.registerModule(new OAuth2AuthorizationServerJackson2Module());
 		}
 
 		@Override
@@ -408,7 +404,7 @@ public class JdbcOAuth2AuthorizationService implements OAuth2AuthorizationServic
 				}
 				Map<String, Object> refreshTokenMetadata = parseMap(rs.getString("refresh_token_metadata"));
 
-				OAuth2RefreshToken refreshToken = new OAuth2RefreshToken2(
+				OAuth2RefreshToken refreshToken = new OAuth2RefreshToken(
 						tokenValue, tokenIssuedAt, tokenExpiresAt);
 				builder.token(refreshToken, (metadata) -> metadata.putAll(refreshTokenMetadata));
 			}
@@ -458,7 +454,7 @@ public class JdbcOAuth2AuthorizationService implements OAuth2AuthorizationServic
 			ClassLoader classLoader = JdbcOAuth2AuthorizationService.class.getClassLoader();
 			List<Module> securityModules = SecurityJackson2Modules.getModules(classLoader);
 			this.objectMapper.registerModules(securityModules);
-			this.objectMapper.registerModule(new OAuth2ServerJackson2Module());
+			this.objectMapper.registerModule(new OAuth2AuthorizationServerJackson2Module());
 		}
 
 		@Override
@@ -529,7 +525,6 @@ public class JdbcOAuth2AuthorizationService implements OAuth2AuthorizationServic
 				if (token.getToken().getIssuedAt() != null) {
 					tokenIssuedAt = Timestamp.from(token.getToken().getIssuedAt());
 				}
-
 				if (token.getToken().getExpiresAt() != null) {
 					tokenExpiresAt = Timestamp.from(token.getToken().getExpiresAt());
 				}
@@ -553,7 +548,6 @@ public class JdbcOAuth2AuthorizationService implements OAuth2AuthorizationServic
 	}
 
 	private static final class LobCreatorArgumentPreparedStatementSetter extends ArgumentPreparedStatementSetter {
-
 		private final LobCreator lobCreator;
 
 		private LobCreatorArgumentPreparedStatementSetter(LobCreator lobCreator, Object[] args) {

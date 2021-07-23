@@ -43,7 +43,7 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.OAuth2TokenIntrospection;
 import org.springframework.security.oauth2.core.OAuth2TokenType;
-import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames2;
+import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.core.http.converter.OAuth2ErrorHttpMessageConverter;
 import org.springframework.security.oauth2.core.http.converter.OAuth2TokenIntrospectionHttpMessageConverter;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientAuthenticationToken;
@@ -67,6 +67,7 @@ import static org.mockito.Mockito.when;
  * @author Joe Grandja
  */
 public class OAuth2TokenIntrospectionEndpointFilterTests {
+	private static final String DEFAULT_TOKEN_INTROSPECTION_ENDPOINT_URI = "/oauth2/introspect";
 	private AuthenticationManager authenticationManager;
 	private OAuth2TokenIntrospectionEndpointFilter filter;
 	private final HttpMessageConverter<OAuth2TokenIntrospection> tokenIntrospectionHttpResponseConverter =
@@ -114,7 +115,7 @@ public class OAuth2TokenIntrospectionEndpointFilterTests {
 
 	@Test
 	public void doFilterWhenTokenIntrospectionRequestGetThenNotProcessed() throws Exception {
-		String requestUri = OAuth2TokenIntrospectionEndpointFilter.DEFAULT_TOKEN_INTROSPECTION_ENDPOINT_URI;
+		String requestUri = DEFAULT_TOKEN_INTROSPECTION_ENDPOINT_URI;
 		MockHttpServletRequest request = new MockHttpServletRequest("GET", requestUri);
 		request.setServletPath(requestUri);
 		MockHttpServletResponse response = new MockHttpServletResponse();
@@ -129,30 +130,30 @@ public class OAuth2TokenIntrospectionEndpointFilterTests {
 	public void doFilterWhenTokenIntrospectionRequestMissingTokenThenInvalidRequestError() throws Exception {
 		MockHttpServletRequest request = createTokenIntrospectionRequest(
 				"token", OAuth2TokenType.ACCESS_TOKEN.getValue());
-		request.removeParameter(OAuth2ParameterNames2.TOKEN);
+		request.removeParameter(OAuth2ParameterNames.TOKEN);
 
 		doFilterWhenTokenIntrospectionRequestInvalidParameterThenError(
-				OAuth2ParameterNames2.TOKEN, OAuth2ErrorCodes.INVALID_REQUEST, request);
+				OAuth2ParameterNames.TOKEN, OAuth2ErrorCodes.INVALID_REQUEST, request);
 	}
 
 	@Test
 	public void doFilterWhenTokenIntrospectionRequestMultipleTokenThenInvalidRequestError() throws Exception {
 		MockHttpServletRequest request = createTokenIntrospectionRequest(
 				"token", OAuth2TokenType.ACCESS_TOKEN.getValue());
-		request.addParameter(OAuth2ParameterNames2.TOKEN, "other-token");
+		request.addParameter(OAuth2ParameterNames.TOKEN, "other-token");
 
 		doFilterWhenTokenIntrospectionRequestInvalidParameterThenError(
-				OAuth2ParameterNames2.TOKEN, OAuth2ErrorCodes.INVALID_REQUEST, request);
+				OAuth2ParameterNames.TOKEN, OAuth2ErrorCodes.INVALID_REQUEST, request);
 	}
 
 	@Test
 	public void doFilterWhenTokenIntrospectionRequestMultipleTokenTypeHintThenInvalidRequestError() throws Exception {
 		MockHttpServletRequest request = createTokenIntrospectionRequest(
 				"token", OAuth2TokenType.ACCESS_TOKEN.getValue());
-		request.addParameter(OAuth2ParameterNames2.TOKEN_TYPE_HINT, OAuth2TokenType.ACCESS_TOKEN.getValue());
+		request.addParameter(OAuth2ParameterNames.TOKEN_TYPE_HINT, OAuth2TokenType.ACCESS_TOKEN.getValue());
 
 		doFilterWhenTokenIntrospectionRequestInvalidParameterThenError(
-				OAuth2ParameterNames2.TOKEN_TYPE_HINT, OAuth2ErrorCodes.INVALID_REQUEST, request);
+				OAuth2ParameterNames.TOKEN_TYPE_HINT, OAuth2ErrorCodes.INVALID_REQUEST, request);
 	}
 
 	@Test
@@ -218,7 +219,7 @@ public class OAuth2TokenIntrospectionEndpointFilterTests {
 				tokenClaims.getIssuedAt().minusSeconds(1), tokenClaims.getIssuedAt().plusSeconds(1));
 		assertThat(tokenIntrospectionResponse.getExpiresAt()).isBetween(
 				tokenClaims.getExpiresAt().minusSeconds(1), tokenClaims.getExpiresAt().plusSeconds(1));
-		assertThat(tokenIntrospectionResponse.getScope()).containsExactlyInAnyOrderElementsOf(tokenClaims.getScope());
+		assertThat(tokenIntrospectionResponse.getScopes()).containsExactlyInAnyOrderElementsOf(tokenClaims.getScopes());
 		assertThat(tokenIntrospectionResponse.getTokenType()).isEqualTo(tokenClaims.getTokenType());
 		assertThat(tokenIntrospectionResponse.getNotBefore()).isBetween(
 				tokenClaims.getNotBefore().minusSeconds(1), tokenClaims.getNotBefore().plusSeconds(1));
@@ -257,11 +258,11 @@ public class OAuth2TokenIntrospectionEndpointFilterTests {
 	}
 
 	private static MockHttpServletRequest createTokenIntrospectionRequest(String token, String tokenTypeHint) {
-		String requestUri = OAuth2TokenIntrospectionEndpointFilter.DEFAULT_TOKEN_INTROSPECTION_ENDPOINT_URI;
+		String requestUri = DEFAULT_TOKEN_INTROSPECTION_ENDPOINT_URI;
 		MockHttpServletRequest request = new MockHttpServletRequest("POST", requestUri);
 		request.setServletPath(requestUri);
-		request.addParameter(OAuth2ParameterNames2.TOKEN, token);
-		request.addParameter(OAuth2ParameterNames2.TOKEN_TYPE_HINT, tokenTypeHint);
+		request.addParameter(OAuth2ParameterNames.TOKEN, token);
+		request.addParameter(OAuth2ParameterNames.TOKEN_TYPE_HINT, tokenTypeHint);
 		return request;
 	}
 

@@ -46,7 +46,6 @@ import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
-import org.springframework.security.oauth2.core.OAuth2RefreshToken2;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AccessTokenResponse;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.core.http.converter.OAuth2ErrorHttpMessageConverter;
@@ -81,6 +80,7 @@ import static org.mockito.Mockito.when;
  * @author Daniel Garnier-Moiroux
  */
 public class OAuth2TokenEndpointFilterTests {
+	private static final String DEFAULT_TOKEN_ENDPOINT_URI = "/oauth2/token";
 	private static final String REMOTE_ADDRESS = "remote-address";
 	private AuthenticationManager authenticationManager;
 	private OAuth2TokenEndpointFilter filter;
@@ -150,7 +150,7 @@ public class OAuth2TokenEndpointFilterTests {
 
 	@Test
 	public void doFilterWhenTokenRequestGetThenNotProcessed() throws Exception {
-		String requestUri = OAuth2TokenEndpointFilter.DEFAULT_TOKEN_ENDPOINT_URI;
+		String requestUri = DEFAULT_TOKEN_ENDPOINT_URI;
 		MockHttpServletRequest request = new MockHttpServletRequest("GET", requestUri);
 		request.setServletPath(requestUri);
 		MockHttpServletResponse response = new MockHttpServletResponse();
@@ -229,7 +229,7 @@ public class OAuth2TokenEndpointFilterTests {
 				OAuth2AccessToken.TokenType.BEARER, "token",
 				Instant.now(), Instant.now().plus(Duration.ofHours(1)),
 				new HashSet<>(Arrays.asList("scope1", "scope2")));
-		OAuth2RefreshToken refreshToken = new OAuth2RefreshToken2(
+		OAuth2RefreshToken refreshToken = new OAuth2RefreshToken(
 				"refresh-token", Instant.now(), Instant.now().plus(Duration.ofDays(1)));
 		Map<String, Object> additionalParameters = Collections.singletonMap("custom-param", "custom-value");
 		OAuth2AccessTokenAuthenticationToken accessTokenAuthentication =
@@ -552,7 +552,7 @@ public class OAuth2TokenEndpointFilterTests {
 	private static MockHttpServletRequest createAuthorizationCodeTokenRequest(RegisteredClient registeredClient) {
 		String[] redirectUris = registeredClient.getRedirectUris().toArray(new String[0]);
 
-		String requestUri = OAuth2TokenEndpointFilter.DEFAULT_TOKEN_ENDPOINT_URI;
+		String requestUri = DEFAULT_TOKEN_ENDPOINT_URI;
 		MockHttpServletRequest request = new MockHttpServletRequest("POST", requestUri);
 		request.setServletPath(requestUri);
 		request.setRemoteAddr(REMOTE_ADDRESS);
@@ -568,7 +568,7 @@ public class OAuth2TokenEndpointFilterTests {
 	}
 
 	private static MockHttpServletRequest createClientCredentialsTokenRequest(RegisteredClient registeredClient) {
-		String requestUri = OAuth2TokenEndpointFilter.DEFAULT_TOKEN_ENDPOINT_URI;
+		String requestUri = DEFAULT_TOKEN_ENDPOINT_URI;
 		MockHttpServletRequest request = new MockHttpServletRequest("POST", requestUri);
 		request.setServletPath(requestUri);
 		request.setRemoteAddr(REMOTE_ADDRESS);
@@ -582,7 +582,7 @@ public class OAuth2TokenEndpointFilterTests {
 	}
 
 	private static MockHttpServletRequest createRefreshTokenTokenRequest(RegisteredClient registeredClient) {
-		String requestUri = OAuth2TokenEndpointFilter.DEFAULT_TOKEN_ENDPOINT_URI;
+		String requestUri = DEFAULT_TOKEN_ENDPOINT_URI;
 		MockHttpServletRequest request = new MockHttpServletRequest("POST", requestUri);
 		request.setServletPath(requestUri);
 		request.setRemoteAddr(REMOTE_ADDRESS);

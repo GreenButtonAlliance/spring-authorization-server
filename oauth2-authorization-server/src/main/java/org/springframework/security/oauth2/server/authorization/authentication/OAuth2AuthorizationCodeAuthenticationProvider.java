@@ -69,7 +69,7 @@ import static org.springframework.security.oauth2.server.authorization.authentic
  * @see <a target="_blank" href="https://tools.ietf.org/html/rfc6749#section-4.1">Section 4.1 Authorization Code Grant</a>
  * @see <a target="_blank" href="https://tools.ietf.org/html/rfc6749#section-4.1.3">Section 4.1.3 Access Token Request</a>
  */
-public class OAuth2AuthorizationCodeAuthenticationProvider implements AuthenticationProvider {
+public final class OAuth2AuthorizationCodeAuthenticationProvider implements AuthenticationProvider {
 	private static final OAuth2TokenType AUTHORIZATION_CODE_TOKEN_TYPE =
 			new OAuth2TokenType(OAuth2ParameterNames.CODE);
 	private static final OAuth2TokenType ID_TOKEN_TOKEN_TYPE =
@@ -92,7 +92,7 @@ public class OAuth2AuthorizationCodeAuthenticationProvider implements Authentica
 		this.jwtEncoder = jwtEncoder;
 	}
 
-	public final void setJwtCustomizer(OAuth2TokenCustomizer<JwtEncodingContext> jwtCustomizer) {
+	public void setJwtCustomizer(OAuth2TokenCustomizer<JwtEncodingContext> jwtCustomizer) {
 		Assert.notNull(jwtCustomizer, "jwtCustomizer cannot be null");
 		this.jwtCustomizer = jwtCustomizer;
 	}
@@ -140,7 +140,7 @@ public class OAuth2AuthorizationCodeAuthenticationProvider implements Authentica
 			throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_GRANT));
 		}
 
-		String issuer = this.providerSettings != null ? this.providerSettings.issuer() : null;
+		String issuer = this.providerSettings != null ? this.providerSettings.getIssuer() : null;
 		Set<String> authorizedScopes = authorization.getAttribute(
 				OAuth2Authorization.AUTHORIZED_SCOPE_ATTRIBUTE_NAME);
 
@@ -174,7 +174,7 @@ public class OAuth2AuthorizationCodeAuthenticationProvider implements Authentica
 		OAuth2RefreshToken refreshToken = null;
 		if (registeredClient.getAuthorizationGrantTypes().contains(AuthorizationGrantType.REFRESH_TOKEN)) {
 			refreshToken = OAuth2RefreshTokenAuthenticationProvider.generateRefreshToken(
-					registeredClient.getTokenSettings().refreshTokenTimeToLive());
+					registeredClient.getTokenSettings().getRefreshTokenTimeToLive());
 		}
 
 		Jwt jwtIdToken = null;

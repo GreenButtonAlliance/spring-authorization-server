@@ -47,7 +47,7 @@ import org.springframework.security.oauth2.core.AbstractOAuth2Token;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
 import org.springframework.security.oauth2.core.OAuth2TokenType;
-import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames2;
+import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.jose.TestJwks;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
@@ -59,7 +59,6 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 import org.springframework.security.oauth2.server.authorization.client.TestRegisteredClients;
 import org.springframework.security.oauth2.server.authorization.config.ProviderSettings;
 import org.springframework.security.oauth2.server.authorization.jackson2.TestingAuthenticationTokenMixin;
-import org.springframework.security.oauth2.server.authorization.web.OAuth2TokenRevocationEndpointFilter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -74,6 +73,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * @author Joe Grandja
  */
 public class OAuth2TokenRevocationTests {
+	private static final String DEFAULT_TOKEN_REVOCATION_ENDPOINT_URI = "/oauth2/revoke";
 	private static EmbeddedDatabase db;
 	private static JWKSource<SecurityContext> jwkSource;
 	private static ProviderSettings providerSettings;
@@ -97,7 +97,7 @@ public class OAuth2TokenRevocationTests {
 	public static void init() {
 		JWKSet jwkSet = new JWKSet(TestJwks.DEFAULT_RSA_JWK);
 		jwkSource = (jwkSelector, securityContext) -> jwkSelector.select(jwkSet);
-		providerSettings = new ProviderSettings().tokenRevocationEndpoint("/test/revoke");
+		providerSettings = ProviderSettings.builder().tokenRevocationEndpoint("/test/revoke").build();
 		db = new EmbeddedDatabaseBuilder()
 				.generateUniqueName(true)
 				.setType(EmbeddedDatabaseType.HSQL)
@@ -130,7 +130,7 @@ public class OAuth2TokenRevocationTests {
 		OAuth2TokenType tokenType = OAuth2TokenType.REFRESH_TOKEN;
 		this.authorizationService.save(authorization);
 
-		this.mvc.perform(post(OAuth2TokenRevocationEndpointFilter.DEFAULT_TOKEN_REVOCATION_ENDPOINT_URI)
+		this.mvc.perform(post(DEFAULT_TOKEN_REVOCATION_ENDPOINT_URI)
 				.params(getTokenRevocationRequestParameters(token, tokenType))
 				.header(HttpHeaders.AUTHORIZATION, "Basic " + encodeBasicAuth(
 						registeredClient.getClientId(), registeredClient.getClientSecret())))
@@ -147,14 +147,14 @@ public class OAuth2TokenRevocationTests {
 	public void requestWhenRevokeAccessTokenThenRevoked() throws Exception {
 		this.spring.register(AuthorizationServerConfiguration.class).autowire();
 
-		assertRevokeAccessTokenThenRevoked(OAuth2TokenRevocationEndpointFilter.DEFAULT_TOKEN_REVOCATION_ENDPOINT_URI);
+		assertRevokeAccessTokenThenRevoked(DEFAULT_TOKEN_REVOCATION_ENDPOINT_URI);
 	}
 
 	@Test
 	public void requestWhenRevokeAccessTokenCustomEndpointThenRevoked() throws Exception {
 		this.spring.register(AuthorizationServerConfigurationCustomEndpoints.class).autowire();
 
-		assertRevokeAccessTokenThenRevoked(providerSettings.tokenRevocationEndpoint());
+		assertRevokeAccessTokenThenRevoked(providerSettings.getTokenRevocationEndpoint());
 	}
 
 	private void assertRevokeAccessTokenThenRevoked(String tokenRevocationEndpointUri) throws Exception {
@@ -181,8 +181,8 @@ public class OAuth2TokenRevocationTests {
 
 	private static MultiValueMap<String, String> getTokenRevocationRequestParameters(AbstractOAuth2Token token, OAuth2TokenType tokenType) {
 		MultiValueMap<String, String> parameters = new LinkedMultiValueMap<>();
-		parameters.set(OAuth2ParameterNames2.TOKEN, token.getTokenValue());
-		parameters.set(OAuth2ParameterNames2.TOKEN_TYPE_HINT, tokenType.getValue());
+		parameters.set(OAuth2ParameterNames.TOKEN, token.getTokenValue());
+		parameters.set(OAuth2ParameterNames.TOKEN_TYPE_HINT, tokenType.getValue());
 		return parameters;
 	}
 

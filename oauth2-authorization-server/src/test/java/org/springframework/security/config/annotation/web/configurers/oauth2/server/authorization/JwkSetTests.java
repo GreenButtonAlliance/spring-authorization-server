@@ -33,6 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabase;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
+import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
 import org.springframework.security.config.test.SpringTestRule;
@@ -42,7 +43,7 @@ import org.springframework.security.oauth2.server.authorization.OAuth2Authorizat
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.config.ProviderSettings;
-import org.springframework.security.oauth2.server.authorization.web.NimbusJwkSetEndpointFilter;
+import org.springframework.security.oauth2.server.authorization.jackson2.TestingAuthenticationTokenMixin;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.CoreMatchers.containsString;
@@ -57,6 +58,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * @author Florian Berthe
  */
 public class JwkSetTests {
+	private static final String DEFAULT_JWK_SET_ENDPOINT_URI = "/oauth2/jwks";
 	private static EmbeddedDatabase db;
 	private static JWKSource<SecurityContext> jwkSource;
 	private static ProviderSettings providerSettings;
@@ -74,7 +76,7 @@ public class JwkSetTests {
 	public static void init() {
 		JWKSet jwkSet = new JWKSet(TestJwks.DEFAULT_RSA_JWK);
 		jwkSource = (jwkSelector, securityContext) -> jwkSelector.select(jwkSet);
-		providerSettings = new ProviderSettings().jwkSetEndpoint("/test/jwks");
+		providerSettings = ProviderSettings.builder().jwkSetEndpoint("/test/jwks").build();
 		db = new EmbeddedDatabaseBuilder()
 				.generateUniqueName(true)
 				.setType(EmbeddedDatabaseType.HSQL)
@@ -99,14 +101,14 @@ public class JwkSetTests {
 	public void requestWhenJwkSetThenReturnKeys() throws Exception {
 		this.spring.register(AuthorizationServerConfiguration.class).autowire();
 
-		assertJwkSetRequestThenReturnKeys(NimbusJwkSetEndpointFilter.DEFAULT_JWK_SET_ENDPOINT_URI);
+		assertJwkSetRequestThenReturnKeys(DEFAULT_JWK_SET_ENDPOINT_URI);
 	}
 
 	@Test
 	public void requestWhenJwkSetCustomEndpointThenReturnKeys() throws Exception {
 		this.spring.register(AuthorizationServerConfigurationCustomEndpoints.class).autowire();
 
-		assertJwkSetRequestThenReturnKeys(providerSettings.jwkSetEndpoint());
+		assertJwkSetRequestThenReturnKeys(providerSettings.getJwkSetEndpoint());
 	}
 
 	private void assertJwkSetRequestThenReturnKeys(String jwkSetEndpointUri) throws Exception {
@@ -125,8 +127,8 @@ public class JwkSetTests {
 		@Bean
 		OAuth2AuthorizationService authorizationService(JdbcOperations jdbcOperations, RegisteredClientRepository registeredClientRepository) {
 			JdbcOAuth2AuthorizationService authorizationService = new JdbcOAuth2AuthorizationService(jdbcOperations, registeredClientRepository);
-			authorizationService.setAuthorizationRowMapper(new OAuth2ClientCredentialsGrantTests.AuthorizationServerConfiguration.RowMapper(registeredClientRepository));
-			authorizationService.setAuthorizationParametersMapper(new OAuth2ClientCredentialsGrantTests.AuthorizationServerConfiguration.ParametersMapper());
+			authorizationService.setAuthorizationRowMapper(new RowMapper(registeredClientRepository));
+			authorizationService.setAuthorizationParametersMapper(new ParametersMapper());
 			return authorizationService;
 		}
 
@@ -143,6 +145,24 @@ public class JwkSetTests {
 		@Bean
 		JWKSource<SecurityContext> jwkSource() {
 			return jwkSource;
+		}
+
+		static class RowMapper extends JdbcOAuth2AuthorizationService.OAuth2AuthorizationRowMapper {
+
+			RowMapper(RegisteredClientRepository registeredClientRepository) {
+				super(registeredClientRepository);
+				getObjectMapper().addMixIn(TestingAuthenticationToken.class, TestingAuthenticationTokenMixin.class);
+			}
+
+		}
+
+		static class ParametersMapper extends JdbcOAuth2AuthorizationService.OAuth2AuthorizationParametersMapper {
+
+			ParametersMapper() {
+				super();
+				getObjectMapper().addMixIn(TestingAuthenticationToken.class, TestingAuthenticationTokenMixin.class);
+			}
+
 		}
 	}
 

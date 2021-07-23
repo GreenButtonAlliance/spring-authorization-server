@@ -29,7 +29,6 @@ import java.util.Set;
 import java.util.function.Function;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -48,7 +47,6 @@ import org.springframework.security.oauth2.core.AbstractOAuth2Token;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
-import org.springframework.security.oauth2.core.OAuth2RefreshToken2;
 import org.springframework.security.oauth2.core.OAuth2TokenType;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
@@ -210,7 +208,7 @@ public class JdbcOAuth2AuthorizationServiceTests {
 				.authorizationGrantType(AUTHORIZATION_GRANT_TYPE)
 				.token(AUTHORIZATION_CODE)
 				.build();
-		ObjectMapper objectMapper = new ObjectMapper();
+
 		RowMapper<OAuth2Authorization> authorizationRowMapper = spy(
 				new JdbcOAuth2AuthorizationService.OAuth2AuthorizationRowMapper(
 						this.registeredClientRepository));
@@ -252,7 +250,7 @@ public class JdbcOAuth2AuthorizationServiceTests {
 				AUTHORIZATION_CODE.getTokenValue(), AUTHORIZATION_CODE_TOKEN_TYPE);
 		assertThat(authorization).isEqualTo(expectedAuthorization);
 
-		this.authorizationService.remove(expectedAuthorization);
+		this.authorizationService.remove(authorization);
 		authorization = this.authorizationService.findByToken(
 				AUTHORIZATION_CODE.getTokenValue(), AUTHORIZATION_CODE_TOKEN_TYPE);
 		assertThat(authorization).isNull();
@@ -350,7 +348,7 @@ public class JdbcOAuth2AuthorizationServiceTests {
 	public void findByTokenWhenRefreshTokenExistsThenFound() {
 		when(this.registeredClientRepository.findById(eq(REGISTERED_CLIENT.getId())))
 				.thenReturn(REGISTERED_CLIENT);
-		OAuth2RefreshToken refreshToken = new OAuth2RefreshToken2("refresh-token",
+		OAuth2RefreshToken refreshToken = new OAuth2RefreshToken("refresh-token",
 				Instant.now().truncatedTo(ChronoUnit.MILLIS),
 				Instant.now().plus(5, ChronoUnit.MINUTES).truncatedTo(ChronoUnit.MILLIS));
 		OAuth2Authorization authorization = OAuth2Authorization.withRegisteredClient(REGISTERED_CLIENT)
@@ -463,8 +461,7 @@ public class JdbcOAuth2AuthorizationServiceTests {
 
 		private static final String PK_FILTER = "id = ?";
 		private static final String UNKNOWN_TOKEN_TYPE_FILTER = "state = ? OR authorizationCodeValue = ? OR " +
-				"accessTokenValue = ? OR " +
-				"refreshTokenValue = ?";
+				"accessTokenValue = ? OR refreshTokenValue = ?";
 
 		// @formatter:off
 		private static final String LOAD_AUTHORIZATION_SQL = "SELECT " + COLUMN_NAMES
@@ -474,12 +471,12 @@ public class JdbcOAuth2AuthorizationServiceTests {
 
 		// @formatter:off
 		private static final String SAVE_AUTHORIZATION_SQL = "INSERT INTO " + TABLE_NAME
-				+ " (" + COLUMN_NAMES + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?,?, ?, ?, ?, ?, ?, ?, ?)";
+				+ " (" + COLUMN_NAMES + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 		// @formatter:on
 
 		private static final String REMOVE_AUTHORIZATION_SQL = "DELETE FROM " + TABLE_NAME + " WHERE " + PK_FILTER;
 
-		CustomJdbcOAuth2AuthorizationService(JdbcOperations jdbcOperations,
+		private CustomJdbcOAuth2AuthorizationService(JdbcOperations jdbcOperations,
 				RegisteredClientRepository registeredClientRepository) {
 			super(jdbcOperations, registeredClientRepository);
 			setAuthorizationRowMapper(new CustomOAuth2AuthorizationRowMapper(registeredClientRepository));
@@ -520,7 +517,7 @@ public class JdbcOAuth2AuthorizationServiceTests {
 
 		private static final class CustomOAuth2AuthorizationRowMapper extends JdbcOAuth2AuthorizationService.OAuth2AuthorizationRowMapper {
 
-			CustomOAuth2AuthorizationRowMapper(RegisteredClientRepository registeredClientRepository) {
+			private CustomOAuth2AuthorizationRowMapper(RegisteredClientRepository registeredClientRepository) {
 				super(registeredClientRepository);
 			}
 
@@ -603,7 +600,7 @@ public class JdbcOAuth2AuthorizationServiceTests {
 					}
 					Map<String, Object> refreshTokenMetadata = parseMap(rs.getString("refreshTokenMetadata"));
 
-					OAuth2RefreshToken refreshToken = new OAuth2RefreshToken2(
+					OAuth2RefreshToken refreshToken = new OAuth2RefreshToken(
 							tokenValue, tokenIssuedAt, tokenExpiresAt);
 					builder.token(refreshToken, (metadata) -> metadata.putAll(refreshTokenMetadata));
 				}
@@ -682,7 +679,6 @@ public class JdbcOAuth2AuthorizationServiceTests {
 					if (token.getToken().getIssuedAt() != null) {
 						tokenIssuedAt = Timestamp.from(token.getToken().getIssuedAt());
 					}
-
 					if (token.getToken().getExpiresAt() != null) {
 						tokenExpiresAt = Timestamp.from(token.getToken().getExpiresAt());
 					}

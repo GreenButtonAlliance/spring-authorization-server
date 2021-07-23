@@ -40,7 +40,6 @@ import org.springframework.security.oauth2.core.endpoint.PkceParameterNames;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode;
-import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCodeRequestAuthenticationException;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsent;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
@@ -64,7 +63,7 @@ import org.springframework.web.util.UriComponentsBuilder;
  * @see OAuth2AuthorizationConsentService
  * @see <a target="_blank" href="https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1">Section 4.1.1 Authorization Request</a>
  */
-public class OAuth2AuthorizationCodeRequestAuthenticationProvider implements AuthenticationProvider {
+public final class OAuth2AuthorizationCodeRequestAuthenticationProvider implements AuthenticationProvider {
 	private static final OAuth2TokenType STATE_TOKEN_TYPE = new OAuth2TokenType(OAuth2ParameterNames.STATE);
 	private static final String PKCE_ERROR_URI = "https://datatracker.ietf.org/doc/html/rfc7636#section-4.4.1";
 	private static final Pattern LOOPBACK_ADDRESS_PATTERN =
@@ -152,7 +151,7 @@ public class OAuth2AuthorizationCodeRequestAuthenticationProvider implements Aut
 							authorizationCodeRequestAuthentication, registeredClient, null);
 				}
 			}
-		} else if (registeredClient.getClientSettings().requireProofKey()) {
+		} else if (registeredClient.getClientSettings().isRequireProofKey()) {
 			throwError(OAuth2ErrorCodes.INVALID_REQUEST, PkceParameterNames.CODE_CHALLENGE, PKCE_ERROR_URI,
 					authorizationCodeRequestAuthentication, registeredClient, null);
 		}
@@ -342,7 +341,7 @@ public class OAuth2AuthorizationCodeRequestAuthenticationProvider implements Aut
 	private static boolean requireAuthorizationConsent(RegisteredClient registeredClient,
 			OAuth2AuthorizationRequest authorizationRequest, OAuth2AuthorizationConsent authorizationConsent) {
 
-		if (!registeredClient.getClientSettings().requireUserConsent()) {
+		if (!registeredClient.getClientSettings().isRequireAuthorizationConsent()) {
 			return false;
 		}
 		// 'openid' scope does not require consent

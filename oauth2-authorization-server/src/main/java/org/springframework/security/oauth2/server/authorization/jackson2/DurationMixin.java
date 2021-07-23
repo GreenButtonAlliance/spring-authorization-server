@@ -15,24 +15,35 @@
  */
 package org.springframework.security.oauth2.server.authorization.jackson2;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.time.Duration;
 
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
 /**
- * This mixin class is used to serialize/deserialize {@link HashSet}.
+ * This mixin class is used to serialize/deserialize {@link Duration}.
  *
- * @author Steve Riesenberg
+ * @author Joe Grandja
  * @since 0.1.2
- * @see HashSet
+ * @see Duration
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS)
-abstract class HashSetMixin {
+@JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.NONE, getterVisibility = JsonAutoDetect.Visibility.NONE,
+		isGetterVisibility = JsonAutoDetect.Visibility.NONE, setterVisibility = JsonAutoDetect.Visibility.NONE,
+		creatorVisibility = JsonAutoDetect.Visibility.NONE)
+abstract class DurationMixin {
 
 	@JsonCreator
-	HashSetMixin(Set<?> set) {
+	static void ofSeconds(@JsonProperty("seconds") long seconds, @JsonProperty("nano") long nanoAdjustment) {
 	}
+
+	@JsonGetter("seconds")
+	abstract long getSeconds();
+
+	@JsonGetter("nano")
+	abstract int getNano();
 
 }
