@@ -25,6 +25,7 @@ import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 
 import org.springframework.http.HttpHeaders;
+import org.springframework.lang.Nullable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
@@ -48,6 +49,7 @@ import org.springframework.util.StringUtils;
  */
 public final class ClientSecretBasicAuthenticationConverter implements AuthenticationConverter {
 
+	@Nullable
 	@Override
 	public Authentication convert(HttpServletRequest request) {
 		String header = request.getHeader(HttpHeaders.AUTHORIZATION);
@@ -89,7 +91,7 @@ public final class ClientSecretBasicAuthenticationConverter implements Authentic
 			throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST), ex);
 		}
 
-		return new OAuth2ClientAuthenticationToken(clientID, clientSecret, ClientAuthenticationMethod.CLIENT_SECRET_BASIC,
+		return new OAuth2ClientAuthenticationToken(clientID, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, clientSecret,
 				extractAdditionalParameters(request));
 	}
 

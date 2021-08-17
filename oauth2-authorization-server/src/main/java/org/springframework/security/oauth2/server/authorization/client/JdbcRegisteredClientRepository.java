@@ -36,6 +36,8 @@ import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.PreparedStatementSetter;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.SqlParameterValue;
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.jackson2.SecurityJackson2Modules;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
@@ -56,6 +58,7 @@ import org.springframework.util.StringUtils;
  *
  * @author Rafal Lewczuk
  * @author Joe Grandja
+ * @author Ovidiu Popa
  * @since 0.1.2
  * @see RegisteredClientRepository
  * @see RegisteredClient
@@ -81,11 +84,21 @@ public class JdbcRegisteredClientRepository implements RegisteredClientRepositor
 
 	private static final String TABLE_NAME = "oauth2_registered_client";
 
+	private static final String PK_FILTER = "id = ?";
+
 	private static final String LOAD_REGISTERED_CLIENT_SQL = "SELECT " + COLUMN_NAMES + " FROM " + TABLE_NAME + " WHERE ";
 
 	// @formatter:off
 	private static final String INSERT_REGISTERED_CLIENT_SQL = "INSERT INTO " + TABLE_NAME
 			+ "(" + COLUMN_NAMES + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+	// @formatter:on
+
+	// @formatter:off
+	private static final String UPDATE_REGISTERED_CLIENT_SQL = "UPDATE " + TABLE_NAME
+			+ " SET client_secret = ?, client_secret_expires_at = ?,"
+			+ " client_name = ?, client_authentication_methods = ?, authorization_grant_types = ?,"
+			+ " redirect_uris = ?, scopes = ?, client_settings = ?, token_settings = ?"
+			+ " WHERE " + PK_FILTER;
 	// @formatter:on
 
 	private final JdbcOperations jdbcOperations;
@@ -107,14 +120,26 @@ public class JdbcRegisteredClientRepository implements RegisteredClientRepositor
 	@Override
 	public void save(RegisteredClient registeredClient) {
 		Assert.notNull(registeredClient, "registeredClient cannot be null");
-		RegisteredClient existingRegisteredClient = findBy("id = ? OR client_id = ?",
-				registeredClient.getId(), registeredClient.getClientId());
+		RegisteredClient existingRegisteredClient = findBy(PK_FILTER,
+				registeredClient.getId());
 		if (existingRegisteredClient != null) {
-			Assert.isTrue(!existingRegisteredClient.getId().equals(registeredClient.getId()),
-					"Registered client must be unique. Found duplicate identifier: " + registeredClient.getId());
-			Assert.isTrue(!existingRegisteredClient.getClientId().equals(registeredClient.getClientId()),
-					"Registered client must be unique. Found duplicate client identifier: " + registeredClient.getClientId());
+			updateRegisteredClient(registeredClient);
+		} else {
+			insertRegisteredClient(registeredClient);
 		}
+	}
+
+	private void updateRegisteredClient(RegisteredClient registeredClient) {
+		List<SqlParameterValue> parameters = new ArrayList<>(this.registeredClientParametersMapper.apply(registeredClient));
+		SqlParameterValue id = parameters.remove(0);
+		parameters.remove(0); // remove client_id
+		parameters.remove(0); // remove client_id_issued_at
+		parameters.add(id);
+		PreparedStatementSetter pss = new ArgumentPreparedStatementSetter(parameters.toArray());
+		this.jdbcOperations.update(UPDATE_REGISTERED_CLIENT_SQL, pss);
+	}
+
+	private void insertRegisteredClient(RegisteredClient registeredClient) {
 		List<SqlParameterValue> parameters = this.registeredClientParametersMapper.apply(registeredClient);
 		PreparedStatementSetter pss = new ArgumentPreparedStatementSetter(parameters.toArray());
 		this.jdbcOperations.update(INSERT_REGISTERED_CLIENT_SQL, pss);
@@ -268,6 +293,7 @@ public class JdbcRegisteredClientRepository implements RegisteredClientRepositor
 	 */
 	public static class RegisteredClientParametersMapper implements Function<RegisteredClient, List<SqlParameterValue>> {
 		private ObjectMapper objectMapper = new ObjectMapper();
+		private PasswordEncoder passwordEncoder = PasswordEncoderFactories.createDelegatingPasswordEncoder();
 
 		public RegisteredClientParametersMapper() {
 			ClassLoader classLoader = JdbcRegisteredClientRepository.class.getClassLoader();
@@ -296,7 +322,7 @@ public class JdbcRegisteredClientRepository implements RegisteredClientRepositor
 					new SqlParameterValue(Types.VARCHAR, registeredClient.getId()),
 					new SqlParameterValue(Types.VARCHAR, registeredClient.getClientId()),
 					new SqlParameterValue(Types.TIMESTAMP, clientIdIssuedAt),
-					new SqlParameterValue(Types.VARCHAR, registeredClient.getClientSecret()),
+					new SqlParameterValue(Types.VARCHAR, encode(registeredClient.getClientSecret())),
 					new SqlParameterValue(Types.TIMESTAMP, clientSecretExpiresAt),
 					new SqlParameterValue(Types.VARCHAR, registeredClient.getClientName()),
 					new SqlParameterValue(Types.VARCHAR, StringUtils.collectionToCommaDelimitedString(clientAuthenticationMethods)),
@@ -312,6 +338,12 @@ public class JdbcRegisteredClientRepository implements RegisteredClientRepositor
 			this.objectMapper = objectMapper;
 		}
 
+
+		public final void setPasswordEncoder(PasswordEncoder passwordEncoder) {
+			Assert.notNull(passwordEncoder, "passwordEncoder cannot be null");
+			this.passwordEncoder = passwordEncoder;
+		}
+
 		protected final ObjectMapper getObjectMapper() {
 			return this.objectMapper;
 		}
@@ -322,6 +354,13 @@ public class JdbcRegisteredClientRepository implements RegisteredClientRepositor
 			} catch (Exception ex) {
 				throw new IllegalArgumentException(ex.getMessage(), ex);
 			}
+		}
+
+		private String encode(String value) {
+			if (value != null) {
+				return this.passwordEncoder.encode(value);
+			}
+			return null;
 		}
 
 	}

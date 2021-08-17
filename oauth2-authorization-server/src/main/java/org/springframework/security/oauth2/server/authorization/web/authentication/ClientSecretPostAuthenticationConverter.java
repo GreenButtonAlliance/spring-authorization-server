@@ -21,6 +21,7 @@ import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 
+import org.springframework.lang.Nullable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
@@ -46,6 +47,7 @@ import org.springframework.util.StringUtils;
  */
 public final class ClientSecretPostAuthenticationConverter implements AuthenticationConverter {
 
+	@Nullable
 	@Override
 	public Authentication convert(HttpServletRequest request) {
 		MultiValueMap<String, String> parameters = OAuth2EndpointUtils.getParameters(request);
@@ -70,7 +72,7 @@ public final class ClientSecretPostAuthenticationConverter implements Authentica
 			throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_REQUEST));
 		}
 
-		return new OAuth2ClientAuthenticationToken(clientId, clientSecret, ClientAuthenticationMethod.CLIENT_SECRET_POST,
+		return new OAuth2ClientAuthenticationToken(clientId, ClientAuthenticationMethod.CLIENT_SECRET_POST, clientSecret,
 				extractAdditionalParameters(request));
 	}
 

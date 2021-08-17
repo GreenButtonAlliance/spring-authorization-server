@@ -32,9 +32,9 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.oauth2.server.authorization.OAuth2AuthorizationServerConfigurer;
-import org.springframework.security.config.annotation.web.configurers.oauth2.server.resource.OAuth2ResourceServerConfigurer;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.server.authorization.config.ProviderSettings;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
@@ -68,12 +68,10 @@ public class OAuth2AuthorizationServerConfiguration {
 				authorizeRequests.anyRequest().authenticated()
 			)
 			.csrf(csrf -> csrf.ignoringRequestMatchers(endpointsMatcher))
-			.oauth2ResourceServer(OAuth2ResourceServerConfigurer::jwt)
 			.apply(authorizationServerConfigurer);
 	}
 	// @formatter:on
 
-	@Bean
 	public static JwtDecoder jwtDecoder(JWKSource<SecurityContext> jwkSource) {
 		Set<JWSAlgorithm> jwsAlgs = new HashSet<>();
 		jwsAlgs.addAll(JWSAlgorithm.Family.RSA);
@@ -87,6 +85,13 @@ public class OAuth2AuthorizationServerConfiguration {
 		jwtProcessor.setJWTClaimsSetVerifier((claims, context) -> {
 		});
 		return new NimbusJwtDecoder(jwtProcessor);
+	}
+
+	@Bean
+	RegisterMissingBeanPostProcessor registerMissingBeanPostProcessor() {
+		RegisterMissingBeanPostProcessor postProcessor = new RegisterMissingBeanPostProcessor();
+		postProcessor.addBeanDefinition(ProviderSettings.class, () -> ProviderSettings.builder().build());
+		return postProcessor;
 	}
 
 }

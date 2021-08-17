@@ -56,6 +56,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.crypto.password.NoOpPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.security.oauth2.core.OAuth2AuthorizationCode;
 import org.springframework.security.oauth2.core.OAuth2TokenType;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AccessTokenResponse;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationResponseType;
@@ -69,10 +70,10 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.JwtEncodingContext;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
-import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenCustomizer;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
+import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository.RegisteredClientParametersMapper;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.TestRegisteredClients;
@@ -275,8 +276,12 @@ public class OidcTests {
 		}
 
 		@Bean
-		RegisteredClientRepository registeredClientRepository(JdbcOperations jdbcOperations) {
-			return new JdbcRegisteredClientRepository(jdbcOperations);
+		RegisteredClientRepository registeredClientRepository(JdbcOperations jdbcOperations, PasswordEncoder passwordEncoder) {
+			JdbcRegisteredClientRepository jdbcRegisteredClientRepository = new JdbcRegisteredClientRepository(jdbcOperations);
+			RegisteredClientParametersMapper registeredClientParametersMapper = new RegisteredClientParametersMapper();
+			registeredClientParametersMapper.setPasswordEncoder(passwordEncoder);
+			jdbcRegisteredClientRepository.setRegisteredClientParametersMapper(registeredClientParametersMapper);
+			return jdbcRegisteredClientRepository;
 		}
 
 		@Bean
@@ -287,6 +292,11 @@ public class OidcTests {
 		@Bean
 		JWKSource<SecurityContext> jwkSource() {
 			return jwkSource;
+		}
+
+		@Bean
+		JwtDecoder jwtDecoder(JWKSource<SecurityContext> jwkSource) {
+			return OAuth2AuthorizationServerConfiguration.jwtDecoder(jwkSource);
 		}
 
 		@Bean
