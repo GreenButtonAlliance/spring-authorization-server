@@ -63,6 +63,8 @@ public class OidcClientRegistrationTests {
 				.scope("scope1")
 				.scope("scope2")
 				.idTokenSignedResponseAlgorithm(SignatureAlgorithm.RS256.getName())
+				.registrationAccessToken("registration-access-token")
+				.registrationClientUrl("https://auth-server.com/connect/register?client_id=1")
 				.claim("a-claim", "a-value")
 				.build();
 		// @formatter:on
@@ -78,6 +80,8 @@ public class OidcClientRegistrationTests {
 		assertThat(clientRegistration.getResponseTypes()).containsOnly("code");
 		assertThat(clientRegistration.getScopes()).containsExactlyInAnyOrder("scope1", "scope2");
 		assertThat(clientRegistration.getIdTokenSignedResponseAlgorithm()).isEqualTo("RS256");
+		assertThat(clientRegistration.getRegistrationAccessToken()).isEqualTo("registration-access-token");
+		assertThat(clientRegistration.getRegistrationClientUrl().toString()).isEqualTo("https://auth-server.com/connect/register?client_id=1");
 		assertThat(clientRegistration.getClaimAsString("a-claim")).isEqualTo("a-value");
 	}
 
@@ -104,6 +108,8 @@ public class OidcClientRegistrationTests {
 		claims.put(OidcClientMetadataClaimNames.RESPONSE_TYPES, Collections.singletonList("code"));
 		claims.put(OidcClientMetadataClaimNames.SCOPE, Arrays.asList("scope1", "scope2"));
 		claims.put(OidcClientMetadataClaimNames.ID_TOKEN_SIGNED_RESPONSE_ALG, SignatureAlgorithm.RS256.getName());
+		claims.put(OidcClientMetadataClaimNames.REGISTRATION_ACCESS_TOKEN, "registration-access-token");
+		claims.put(OidcClientMetadataClaimNames.REGISTRATION_CLIENT_URI, "https://auth-server.com/connect/register?client_id=1");
 		claims.put("a-claim", "a-value");
 
 		OidcClientRegistration clientRegistration = OidcClientRegistration.withClaims(claims).build();
@@ -119,6 +125,8 @@ public class OidcClientRegistrationTests {
 		assertThat(clientRegistration.getResponseTypes()).containsOnly("code");
 		assertThat(clientRegistration.getScopes()).containsExactlyInAnyOrder("scope1", "scope2");
 		assertThat(clientRegistration.getIdTokenSignedResponseAlgorithm()).isEqualTo("RS256");
+		assertThat(clientRegistration.getRegistrationAccessToken()).isEqualTo("registration-access-token");
+		assertThat(clientRegistration.getRegistrationClientUrl().toString()).isEqualTo("https://auth-server.com/connect/register?client_id=1");
 		assertThat(clientRegistration.getClaimAsString("a-claim")).isEqualTo("a-value");
 	}
 
