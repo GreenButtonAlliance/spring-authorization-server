@@ -185,10 +185,10 @@ public final class OAuth2AuthorizationCodeRequestAuthenticationProvider implemen
 					authorizationCodeRequestAuthentication, null);
 		}
 
-		OAuth2AuthenticationContext authenticationContext =
-				OAuth2AuthenticationContext.with(authorizationCodeRequestAuthentication)
-						.put(RegisteredClient.class, registeredClient)
-						.build();
+		Map<Object, Object> context = new HashMap<>();
+		context.put(RegisteredClient.class, registeredClient);
+		OAuth2AuthenticationContext authenticationContext = new OAuth2AuthenticationContext(
+				authorizationCodeRequestAuthentication, context);
 
 		OAuth2AuthenticationValidator redirectUriValidator = resolveAuthenticationValidator(OAuth2ParameterNames.REDIRECT_URI);
 		redirectUriValidator.validate(authenticationContext);
@@ -355,7 +355,8 @@ public final class OAuth2AuthorizationCodeRequestAuthenticationProvider implemen
 		if (this.authorizationConsentCustomizer != null) {
 			// @formatter:off
 			OAuth2AuthorizationConsentAuthenticationContext authorizationConsentAuthenticationContext =
-					OAuth2AuthorizationConsentAuthenticationContext.with(authorizationCodeRequestAuthentication, authorizationConsentBuilder)
+					OAuth2AuthorizationConsentAuthenticationContext.with(authorizationCodeRequestAuthentication)
+							.authorizationConsent(authorizationConsentBuilder)
 							.registeredClient(registeredClient)
 							.authorization(authorization)
 							.authorizationRequest(authorizationRequest)
