@@ -31,26 +31,37 @@ import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
+import org.springframework.security.oauth2.core.OAuth2Token;
+import org.springframework.security.oauth2.core.OAuth2TokenFormat;
 import org.springframework.security.oauth2.core.OAuth2TokenType;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.jwt.JoseHeaderNames;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
+import org.springframework.security.oauth2.server.authorization.token.DelegatingOAuth2TokenGenerator;
 import org.springframework.security.oauth2.server.authorization.JwtEncodingContext;
+import org.springframework.security.oauth2.server.authorization.token.JwtGenerator;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2AccessTokenGenerator;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenClaimsContext;
+import org.springframework.security.oauth2.server.authorization.OAuth2TokenContext;
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenCustomizer;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenGenerator;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.TestRegisteredClients;
 import org.springframework.security.oauth2.server.authorization.config.ProviderSettings;
+import org.springframework.security.oauth2.server.authorization.config.TokenSettings;
 import org.springframework.security.oauth2.server.authorization.context.ProviderContext;
 import org.springframework.security.oauth2.server.authorization.context.ProviderContextHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -64,16 +75,30 @@ public class OAuth2ClientCredentialsAuthenticationProviderTests {
 	private OAuth2AuthorizationService authorizationService;
 	private JwtEncoder jwtEncoder;
 	private OAuth2TokenCustomizer<JwtEncodingContext> jwtCustomizer;
+	private OAuth2TokenCustomizer<OAuth2TokenClaimsContext> accessTokenCustomizer;
+	private OAuth2TokenGenerator<?> tokenGenerator;
 	private OAuth2ClientCredentialsAuthenticationProvider authenticationProvider;
 
 	@Before
 	public void setUp() {
 		this.authorizationService = mock(OAuth2AuthorizationService.class);
 		this.jwtEncoder = mock(JwtEncoder.class);
-		this.authenticationProvider = new OAuth2ClientCredentialsAuthenticationProvider(
-				this.authorizationService, this.jwtEncoder);
 		this.jwtCustomizer = mock(OAuth2TokenCustomizer.class);
-		this.authenticationProvider.setJwtCustomizer(this.jwtCustomizer);
+		JwtGenerator jwtGenerator = new JwtGenerator(this.jwtEncoder);
+		jwtGenerator.setJwtCustomizer(this.jwtCustomizer);
+		this.accessTokenCustomizer = mock(OAuth2TokenCustomizer.class);
+		OAuth2AccessTokenGenerator accessTokenGenerator = new OAuth2AccessTokenGenerator();
+		accessTokenGenerator.setAccessTokenCustomizer(this.accessTokenCustomizer);
+		OAuth2TokenGenerator<OAuth2Token> delegatingTokenGenerator =
+				new DelegatingOAuth2TokenGenerator(jwtGenerator, accessTokenGenerator);
+		this.tokenGenerator = spy(new OAuth2TokenGenerator<OAuth2Token>() {
+			@Override
+			public OAuth2Token generate(OAuth2TokenContext context) {
+				return delegatingTokenGenerator.generate(context);
+			}
+		});
+		this.authenticationProvider = new OAuth2ClientCredentialsAuthenticationProvider(
+				this.authorizationService, this.tokenGenerator);
 		ProviderSettings providerSettings = ProviderSettings.builder().issuer("https://provider.com").build();
 		ProviderContextHolder.setProviderContext(new ProviderContext(providerSettings, null));
 	}
@@ -92,9 +117,16 @@ public class OAuth2ClientCredentialsAuthenticationProviderTests {
 
 	@Test
 	public void constructorWhenJwtEncoderNullThenThrowIllegalArgumentException() {
-		assertThatThrownBy(() -> new OAuth2ClientCredentialsAuthenticationProvider(this.authorizationService, null))
+		assertThatThrownBy(() -> new OAuth2ClientCredentialsAuthenticationProvider(this.authorizationService, (JwtEncoder) null))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessage("jwtEncoder cannot be null");
+	}
+
+	@Test
+	public void constructorWhenTokenGeneratorNullThenThrowIllegalArgumentException() {
+		assertThatThrownBy(() -> new OAuth2ClientCredentialsAuthenticationProvider(this.authorizationService, (OAuth2TokenGenerator<?>) null))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessage("tokenGenerator cannot be null");
 	}
 
 	@Test
@@ -194,6 +226,25 @@ public class OAuth2ClientCredentialsAuthenticationProviderTests {
 	}
 
 	@Test
+	public void authenticateWhenAccessTokenNotGeneratedThenThrowOAuth2AuthenticationException() {
+		RegisteredClient registeredClient = TestRegisteredClients.registeredClient2().build();
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
+		OAuth2ClientCredentialsAuthenticationToken authentication =
+				new OAuth2ClientCredentialsAuthenticationToken(clientPrincipal, null, null);
+
+		doReturn(null).when(this.tokenGenerator).generate(any());
+
+		assertThatThrownBy(() -> this.authenticationProvider.authenticate(authentication))
+				.isInstanceOf(OAuth2AuthenticationException.class)
+				.extracting(ex -> ((OAuth2AuthenticationException) ex).getError())
+				.satisfies(error -> {
+					assertThat(error.getErrorCode()).isEqualTo(OAuth2ErrorCodes.SERVER_ERROR);
+					assertThat(error.getDescription()).contains("The token generator failed to generate the access token.");
+				});
+	}
+
+	@Test
 	public void authenticateWhenValidAuthenticationThenReturnAccessToken() {
 		RegisteredClient registeredClient = TestRegisteredClients.registeredClient2().build();
 		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
@@ -234,6 +285,25 @@ public class OAuth2ClientCredentialsAuthenticationProviderTests {
 				.isEqualTo(authorization.getAttribute(OAuth2Authorization.AUTHORIZED_SCOPE_ATTRIBUTE_NAME));
 		assertThat(accessTokenAuthentication.getPrincipal()).isEqualTo(clientPrincipal);
 		assertThat(accessTokenAuthentication.getAccessToken()).isEqualTo(authorization.getAccessToken().getToken());
+	}
+
+	@Test
+	public void authenticateWhenAccessTokenFormatReferenceThenAccessTokenGeneratorCalled() {
+		// @formatter:off
+		RegisteredClient registeredClient = TestRegisteredClients.registeredClient2()
+				.tokenSettings(TokenSettings.builder()
+						.accessTokenFormat(OAuth2TokenFormat.REFERENCE)
+						.build())
+				.build();
+		// @formatter:on
+		OAuth2ClientAuthenticationToken clientPrincipal = new OAuth2ClientAuthenticationToken(
+				registeredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, registeredClient.getClientSecret());
+		OAuth2ClientCredentialsAuthenticationToken authentication =
+				new OAuth2ClientCredentialsAuthenticationToken(clientPrincipal, null, null);
+
+		this.authenticationProvider.authenticate(authentication);
+
+		verify(this.accessTokenCustomizer).customize(any());
 	}
 
 	private static Jwt createJwt(Set<String> scope) {

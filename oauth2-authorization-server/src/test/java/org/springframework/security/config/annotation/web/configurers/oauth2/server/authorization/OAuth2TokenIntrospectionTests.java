@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2021 the original author or authors.
+ * Copyright 2020-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,23 +15,28 @@
  */
 package org.springframework.security.config.annotation.web.configurers.oauth2.server.authorization;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 
-import com.nimbusds.jose.jwk.JWKSet;
-import com.nimbusds.jose.jwk.source.JWKSource;
-import com.nimbusds.jose.proc.SecurityContext;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.jdbc.core.JdbcOperations;
@@ -41,40 +46,64 @@ import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
 import org.springframework.mock.http.client.MockClientHttpResponse;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
 import org.springframework.security.config.test.SpringTestRule;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.NoOpPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AbstractOAuth2Token;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
+import org.springframework.security.oauth2.core.OAuth2AuthorizationCode;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
+import org.springframework.security.oauth2.core.OAuth2TokenFormat;
 import org.springframework.security.oauth2.core.OAuth2TokenIntrospection;
+import org.springframework.security.oauth2.core.OAuth2TokenIntrospectionClaimNames;
 import org.springframework.security.oauth2.core.OAuth2TokenType;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AccessTokenResponse;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
+import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
 import org.springframework.security.oauth2.core.http.converter.OAuth2TokenIntrospectionHttpMessageConverter;
-import org.springframework.security.oauth2.jose.TestJwks;
-import org.springframework.security.oauth2.jwt.JwtClaimsSet;
-import org.springframework.security.oauth2.jwt.TestJwtClaimsSets;
+import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
+import org.springframework.security.oauth2.server.authorization.OAuth2TokenCustomizer;
 import org.springframework.security.oauth2.server.authorization.TestOAuth2Authorizations;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientAuthenticationToken;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2TokenIntrospectionAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository.RegisteredClientParametersMapper;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.TestRegisteredClients;
 import org.springframework.security.oauth2.server.authorization.config.ProviderSettings;
+import org.springframework.security.oauth2.server.authorization.config.TokenSettings;
 import org.springframework.security.oauth2.server.authorization.jackson2.TestingAuthenticationTokenMixin;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenClaimsContext;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenClaimsSet;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationConverter;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -86,10 +115,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 public class OAuth2TokenIntrospectionTests {
 	private static EmbeddedDatabase db;
-	private static JWKSource<SecurityContext> jwkSource;
 	private static ProviderSettings providerSettings;
-	private final HttpMessageConverter<OAuth2TokenIntrospection> tokenIntrospectionHttpResponseConverter =
+	private static OAuth2TokenCustomizer<OAuth2TokenClaimsContext> accessTokenCustomizer;
+	private static AuthenticationConverter authenticationConverter;
+	private static AuthenticationProvider authenticationProvider;
+	private static AuthenticationSuccessHandler authenticationSuccessHandler;
+	private static AuthenticationFailureHandler authenticationFailureHandler;
+	private static final HttpMessageConverter<OAuth2TokenIntrospection> tokenIntrospectionHttpResponseConverter =
 			new OAuth2TokenIntrospectionHttpMessageConverter();
+	private static final HttpMessageConverter<OAuth2AccessTokenResponse> accessTokenHttpResponseConverter =
+			new OAuth2AccessTokenResponseHttpMessageConverter();
 
 	@Rule
 	public final SpringTestRule spring = new SpringTestRule();
@@ -108,9 +143,12 @@ public class OAuth2TokenIntrospectionTests {
 
 	@BeforeClass
 	public static void init() {
-		JWKSet jwkSet = new JWKSet(TestJwks.DEFAULT_RSA_JWK);
-		jwkSource = (jwkSelector, securityContext) -> jwkSelector.select(jwkSet);
 		providerSettings = ProviderSettings.builder().tokenIntrospectionEndpoint("/test/introspect").build();
+		authenticationConverter = mock(AuthenticationConverter.class);
+		authenticationProvider = mock(AuthenticationProvider.class);
+		authenticationSuccessHandler = mock(AuthenticationSuccessHandler.class);
+		authenticationFailureHandler = mock(AuthenticationFailureHandler.class);
+		accessTokenCustomizer = mock(OAuth2TokenCustomizer.class);
 		db = new EmbeddedDatabaseBuilder()
 				.generateUniqueName(true)
 				.setType(EmbeddedDatabaseType.HSQL)
@@ -145,9 +183,20 @@ public class OAuth2TokenIntrospectionTests {
 		OAuth2AccessToken accessToken = new OAuth2AccessToken(
 				OAuth2AccessToken.TokenType.BEARER, "access-token", issuedAt, expiresAt,
 				new HashSet<>(Arrays.asList("scope1", "scope2")));
-		JwtClaimsSet tokenClaims = TestJwtClaimsSets.jwtClaimsSet().build();
+		// @formatter:off
+		OAuth2TokenClaimsSet accessTokenClaims = OAuth2TokenClaimsSet.builder()
+				.issuer("https://provider.com")
+				.subject("subject")
+				.audience(Collections.singletonList(authorizedRegisteredClient.getClientId()))
+				.issuedAt(issuedAt)
+				.notBefore(issuedAt)
+				.expiresAt(expiresAt)
+				.claim(OAuth2TokenIntrospectionClaimNames.SCOPE, accessToken.getScopes())
+				.id("id")
+				.build();
+		// @formatter:on
 		OAuth2Authorization authorization = TestOAuth2Authorizations
-				.authorization(authorizedRegisteredClient, accessToken, tokenClaims.getClaims())
+				.authorization(authorizedRegisteredClient, accessToken, accessTokenClaims.getClaims())
 				.build();
 		this.registeredClientRepository.save(authorizedRegisteredClient);
 		this.authorizationService.save(authorization);
@@ -155,7 +204,7 @@ public class OAuth2TokenIntrospectionTests {
 		// @formatter:off
 		MvcResult mvcResult = this.mvc.perform(post(providerSettings.getTokenIntrospectionEndpoint())
 				.params(getTokenIntrospectionRequestParameters(accessToken, OAuth2TokenType.ACCESS_TOKEN))
-				.with(httpBasic(introspectRegisteredClient.getClientId(), introspectRegisteredClient.getClientSecret())))
+				.header(HttpHeaders.AUTHORIZATION, getAuthorizationHeader(introspectRegisteredClient)))
 				.andExpect(status().isOk())
 				.andReturn();
 		// @formatter:on
@@ -165,17 +214,17 @@ public class OAuth2TokenIntrospectionTests {
 		assertThat(tokenIntrospectionResponse.getClientId()).isEqualTo(authorizedRegisteredClient.getClientId());
 		assertThat(tokenIntrospectionResponse.getUsername()).isNull();
 		assertThat(tokenIntrospectionResponse.getIssuedAt()).isBetween(
-				accessToken.getIssuedAt().minusSeconds(1), accessToken.getIssuedAt().plusSeconds(1));
+				accessTokenClaims.getIssuedAt().minusSeconds(1), accessTokenClaims.getIssuedAt().plusSeconds(1));
 		assertThat(tokenIntrospectionResponse.getExpiresAt()).isBetween(
-				accessToken.getExpiresAt().minusSeconds(1), accessToken.getExpiresAt().plusSeconds(1));
+				accessTokenClaims.getExpiresAt().minusSeconds(1), accessTokenClaims.getExpiresAt().plusSeconds(1));
 		assertThat(tokenIntrospectionResponse.getScopes()).containsExactlyInAnyOrderElementsOf(accessToken.getScopes());
 		assertThat(tokenIntrospectionResponse.getTokenType()).isEqualTo(accessToken.getTokenType().getValue());
 		assertThat(tokenIntrospectionResponse.getNotBefore()).isBetween(
-				tokenClaims.getNotBefore().minusSeconds(1), tokenClaims.getNotBefore().plusSeconds(1));
-		assertThat(tokenIntrospectionResponse.getSubject()).isEqualTo(tokenClaims.getSubject());
-		assertThat(tokenIntrospectionResponse.getAudience()).containsExactlyInAnyOrderElementsOf(tokenClaims.getAudience());
-		assertThat(tokenIntrospectionResponse.getIssuer()).isEqualTo(tokenClaims.getIssuer());
-		assertThat(tokenIntrospectionResponse.getId()).isEqualTo(tokenClaims.getId());
+				accessTokenClaims.getNotBefore().minusSeconds(1), accessTokenClaims.getNotBefore().plusSeconds(1));
+		assertThat(tokenIntrospectionResponse.getSubject()).isEqualTo(accessTokenClaims.getSubject());
+		assertThat(tokenIntrospectionResponse.getAudience()).containsExactlyInAnyOrderElementsOf(accessTokenClaims.getAudience());
+		assertThat(tokenIntrospectionResponse.getIssuer()).isEqualTo(accessTokenClaims.getIssuer());
+		assertThat(tokenIntrospectionResponse.getId()).isEqualTo(accessTokenClaims.getId());
 	}
 
 	@Test
@@ -195,7 +244,7 @@ public class OAuth2TokenIntrospectionTests {
 		// @formatter:off
 		MvcResult mvcResult = this.mvc.perform(post(providerSettings.getTokenIntrospectionEndpoint())
 				.params(getTokenIntrospectionRequestParameters(refreshToken, OAuth2TokenType.REFRESH_TOKEN))
-				.with(httpBasic(introspectRegisteredClient.getClientId(), introspectRegisteredClient.getClientSecret())))
+				.header(HttpHeaders.AUTHORIZATION, getAuthorizationHeader(introspectRegisteredClient)))
 				.andExpect(status().isOk())
 				.andReturn();
 		// @formatter:on
@@ -217,6 +266,108 @@ public class OAuth2TokenIntrospectionTests {
 		assertThat(tokenIntrospectionResponse.getId()).isNull();
 	}
 
+	@Test
+	public void requestWhenObtainReferenceAccessTokenAndIntrospectThenActive() throws Exception {
+		this.spring.register(AuthorizationServerConfiguration.class).autowire();
+
+		// @formatter:off
+		TokenSettings tokenSettings = TokenSettings.builder()
+				.accessTokenFormat(OAuth2TokenFormat.REFERENCE)
+				.build();
+		RegisteredClient authorizedRegisteredClient = TestRegisteredClients.registeredClient()
+				.tokenSettings(tokenSettings)
+				.build();
+		// @formatter:on
+		this.registeredClientRepository.save(authorizedRegisteredClient);
+
+		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(authorizedRegisteredClient).build();
+		this.authorizationService.save(authorization);
+
+		// @formatter:off
+		MvcResult mvcResult = this.mvc.perform(post(providerSettings.getTokenEndpoint())
+				.params(getAuthorizationCodeTokenRequestParameters(authorizedRegisteredClient, authorization))
+				.header(HttpHeaders.AUTHORIZATION, getAuthorizationHeader(authorizedRegisteredClient)))
+				.andExpect(status().isOk())
+				.andReturn();
+		// @formatter:on
+
+		OAuth2AccessTokenResponse accessTokenResponse = readAccessTokenResponse(mvcResult);
+		OAuth2AccessToken accessToken = accessTokenResponse.getAccessToken();
+
+		RegisteredClient introspectRegisteredClient = TestRegisteredClients.registeredClient2().build();
+		this.registeredClientRepository.save(introspectRegisteredClient);
+
+		// @formatter:off
+		mvcResult = this.mvc.perform(post(providerSettings.getTokenIntrospectionEndpoint())
+				.params(getTokenIntrospectionRequestParameters(accessToken, OAuth2TokenType.ACCESS_TOKEN))
+				.header(HttpHeaders.AUTHORIZATION, getAuthorizationHeader(introspectRegisteredClient)))
+				.andExpect(status().isOk())
+				.andReturn();
+		// @formatter:on
+
+		OAuth2TokenIntrospection tokenIntrospectionResponse = readTokenIntrospectionResponse(mvcResult);
+
+		ArgumentCaptor<OAuth2TokenClaimsContext> accessTokenClaimsContextCaptor = ArgumentCaptor.forClass(OAuth2TokenClaimsContext.class);
+		verify(accessTokenCustomizer).customize(accessTokenClaimsContextCaptor.capture());
+
+		OAuth2TokenClaimsContext accessTokenClaimsContext = accessTokenClaimsContextCaptor.getValue();
+		OAuth2TokenClaimsSet accessTokenClaims = accessTokenClaimsContext.getClaims().build();
+
+		assertThat(tokenIntrospectionResponse.isActive()).isTrue();
+		assertThat(tokenIntrospectionResponse.getClientId()).isEqualTo(authorizedRegisteredClient.getClientId());
+		assertThat(tokenIntrospectionResponse.getUsername()).isNull();
+		assertThat(tokenIntrospectionResponse.getIssuedAt()).isBetween(
+				accessTokenClaims.getIssuedAt().minusSeconds(1), accessTokenClaims.getIssuedAt().plusSeconds(1));
+		assertThat(tokenIntrospectionResponse.getExpiresAt()).isBetween(
+				accessTokenClaims.getExpiresAt().minusSeconds(1), accessTokenClaims.getExpiresAt().plusSeconds(1));
+		List<String> scopes = new ArrayList<>(accessTokenClaims.getClaim(OAuth2ParameterNames.SCOPE));
+		assertThat(tokenIntrospectionResponse.getScopes()).containsExactlyInAnyOrderElementsOf(scopes);
+		assertThat(tokenIntrospectionResponse.getTokenType()).isEqualTo(accessToken.getTokenType().getValue());
+		assertThat(tokenIntrospectionResponse.getNotBefore()).isBetween(
+				accessTokenClaims.getNotBefore().minusSeconds(1), accessTokenClaims.getNotBefore().plusSeconds(1));
+		assertThat(tokenIntrospectionResponse.getSubject()).isEqualTo(accessTokenClaims.getSubject());
+		assertThat(tokenIntrospectionResponse.getAudience()).containsExactlyInAnyOrderElementsOf(accessTokenClaims.getAudience());
+		assertThat(tokenIntrospectionResponse.getIssuer()).isEqualTo(accessTokenClaims.getIssuer());
+		assertThat(tokenIntrospectionResponse.getId()).isEqualTo(accessTokenClaims.getId());
+	}
+
+	@Test
+	public void requestWhenTokenIntrospectionEndpointCustomizedThenUsed() throws Exception {
+		this.spring.register(AuthorizationServerConfigurationCustomTokenIntrospectionEndpoint.class).autowire();
+
+		RegisteredClient introspectRegisteredClient = TestRegisteredClients.registeredClient2().build();
+		this.registeredClientRepository.save(introspectRegisteredClient);
+
+		RegisteredClient authorizedRegisteredClient = TestRegisteredClients.registeredClient().build();
+		this.registeredClientRepository.save(authorizedRegisteredClient);
+
+		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(authorizedRegisteredClient).build();
+		this.authorizationService.save(authorization);
+
+		OAuth2AccessToken accessToken = authorization.getAccessToken().getToken();
+
+		Authentication clientPrincipal = new OAuth2ClientAuthenticationToken(
+				introspectRegisteredClient, ClientAuthenticationMethod.CLIENT_SECRET_BASIC, introspectRegisteredClient.getClientSecret());
+		OAuth2TokenIntrospectionAuthenticationToken tokenIntrospectionAuthentication =
+				new OAuth2TokenIntrospectionAuthenticationToken(
+						accessToken.getTokenValue(), clientPrincipal, null, null);
+
+		when(authenticationConverter.convert(any())).thenReturn(tokenIntrospectionAuthentication);
+		when(authenticationProvider.supports(eq(OAuth2TokenIntrospectionAuthenticationToken.class))).thenReturn(true);
+		when(authenticationProvider.authenticate(any())).thenReturn(tokenIntrospectionAuthentication);
+
+		// @formatter:off
+		this.mvc.perform(post(providerSettings.getTokenIntrospectionEndpoint())
+				.params(getTokenIntrospectionRequestParameters(accessToken, OAuth2TokenType.ACCESS_TOKEN))
+				.header(HttpHeaders.AUTHORIZATION, getAuthorizationHeader(introspectRegisteredClient)))
+				.andExpect(status().isOk());
+		// @formatter:on
+
+		verify(authenticationConverter).convert(any());
+		verify(authenticationProvider).authenticate(eq(tokenIntrospectionAuthentication));
+		verify(authenticationSuccessHandler).onAuthenticationSuccess(any(), any(), eq(tokenIntrospectionAuthentication));
+	}
+
 	private static MultiValueMap<String, String> getTokenIntrospectionRequestParameters(AbstractOAuth2Token token,
 			OAuth2TokenType tokenType) {
 		MultiValueMap<String, String> parameters = new LinkedMultiValueMap<>();
@@ -225,11 +376,37 @@ public class OAuth2TokenIntrospectionTests {
 		return parameters;
 	}
 
-	private OAuth2TokenIntrospection readTokenIntrospectionResponse(MvcResult mvcResult) throws Exception {
+	private static OAuth2TokenIntrospection readTokenIntrospectionResponse(MvcResult mvcResult) throws Exception {
 		MockHttpServletResponse servletResponse = mvcResult.getResponse();
 		MockClientHttpResponse httpResponse = new MockClientHttpResponse(
 				servletResponse.getContentAsByteArray(), HttpStatus.valueOf(servletResponse.getStatus()));
-		return this.tokenIntrospectionHttpResponseConverter.read(OAuth2TokenIntrospection.class, httpResponse);
+		return tokenIntrospectionHttpResponseConverter.read(OAuth2TokenIntrospection.class, httpResponse);
+	}
+
+	private static MultiValueMap<String, String> getAuthorizationCodeTokenRequestParameters(RegisteredClient registeredClient,
+			OAuth2Authorization authorization) {
+		MultiValueMap<String, String> parameters = new LinkedMultiValueMap<>();
+		parameters.set(OAuth2ParameterNames.GRANT_TYPE, AuthorizationGrantType.AUTHORIZATION_CODE.getValue());
+		parameters.set(OAuth2ParameterNames.CODE, authorization.getToken(OAuth2AuthorizationCode.class).getToken().getTokenValue());
+		parameters.set(OAuth2ParameterNames.REDIRECT_URI, registeredClient.getRedirectUris().iterator().next());
+		return parameters;
+	}
+
+	private static OAuth2AccessTokenResponse readAccessTokenResponse(MvcResult mvcResult) throws Exception {
+		MockHttpServletResponse servletResponse = mvcResult.getResponse();
+		MockClientHttpResponse httpResponse = new MockClientHttpResponse(
+				servletResponse.getContentAsByteArray(), HttpStatus.valueOf(servletResponse.getStatus()));
+		return accessTokenHttpResponseConverter.read(OAuth2AccessTokenResponse.class, httpResponse);
+	}
+
+	private static String getAuthorizationHeader(RegisteredClient registeredClient) throws Exception {
+		String clientId = registeredClient.getClientId();
+		String clientSecret = registeredClient.getClientSecret();
+		clientId = URLEncoder.encode(clientId, StandardCharsets.UTF_8.name());
+		clientSecret = URLEncoder.encode(clientSecret, StandardCharsets.UTF_8.name());
+		String credentialsString = clientId + ":" + clientSecret;
+		byte[] encodedBytes = Base64.getEncoder().encode(credentialsString.getBytes(StandardCharsets.UTF_8));
+		return "Basic " + new String(encodedBytes, StandardCharsets.UTF_8);
 	}
 
 	@EnableWebSecurity
@@ -242,6 +419,11 @@ public class OAuth2TokenIntrospectionTests {
 			authorizationService.setAuthorizationRowMapper(new RowMapper(registeredClientRepository));
 			authorizationService.setAuthorizationParametersMapper(new ParametersMapper());
 			return authorizationService;
+		}
+
+		@Bean
+		OAuth2AuthorizationConsentService authorizationConsentService(JdbcOperations jdbcOperations, RegisteredClientRepository registeredClientRepository) {
+			return new JdbcOAuth2AuthorizationConsentService(jdbcOperations, registeredClientRepository);
 		}
 
 		@Bean
@@ -259,13 +441,13 @@ public class OAuth2TokenIntrospectionTests {
 		}
 
 		@Bean
-		JWKSource<SecurityContext> jwkSource() {
-			return jwkSource;
+		ProviderSettings providerSettings() {
+			return providerSettings;
 		}
 
 		@Bean
-		ProviderSettings providerSettings() {
-			return providerSettings;
+		OAuth2TokenCustomizer<OAuth2TokenClaimsContext> accessTokenCustomizer() {
+			return accessTokenCustomizer;
 		}
 
 		@Bean
@@ -292,4 +474,35 @@ public class OAuth2TokenIntrospectionTests {
 		}
 
 	}
+
+	@EnableWebSecurity
+	static class AuthorizationServerConfigurationCustomTokenIntrospectionEndpoint extends AuthorizationServerConfiguration {
+
+		// @formatter:off
+		@Bean
+		public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
+			OAuth2AuthorizationServerConfigurer<HttpSecurity> authorizationServerConfigurer =
+					new OAuth2AuthorizationServerConfigurer<>();
+			authorizationServerConfigurer
+					.tokenIntrospectionEndpoint(tokenIntrospectionEndpoint ->
+							tokenIntrospectionEndpoint
+									.introspectionRequestConverter(authenticationConverter)
+									.authenticationProvider(authenticationProvider)
+									.introspectionResponseHandler(authenticationSuccessHandler)
+									.errorResponseHandler(authenticationFailureHandler));
+			RequestMatcher endpointsMatcher = authorizationServerConfigurer.getEndpointsMatcher();
+
+			http
+					.requestMatcher(endpointsMatcher)
+					.authorizeRequests(authorizeRequests ->
+							authorizeRequests.anyRequest().authenticated()
+					)
+					.csrf(csrf -> csrf.ignoringRequestMatchers(endpointsMatcher))
+					.apply(authorizationServerConfigurer);
+			return http.build();
+		}
+		// @formatter:on
+
+	}
+
 }

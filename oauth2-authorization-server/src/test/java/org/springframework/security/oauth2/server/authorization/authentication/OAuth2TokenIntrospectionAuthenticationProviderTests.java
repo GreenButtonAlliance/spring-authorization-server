@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2021 the original author or authors.
+ * Copyright 2020-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,15 +32,15 @@ import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
 import org.springframework.security.oauth2.core.OAuth2TokenIntrospection;
-import org.springframework.security.oauth2.jwt.JwtClaimNames;
-import org.springframework.security.oauth2.jwt.JwtClaimsSet;
-import org.springframework.security.oauth2.jwt.TestJwtClaimsSets;
+import org.springframework.security.oauth2.core.OAuth2TokenIntrospectionClaimNames;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.TestOAuth2Authorizations;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.TestRegisteredClients;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenClaimNames;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenClaimsSet;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -189,7 +189,7 @@ public class OAuth2TokenIntrospectionAuthenticationProviderTests {
 		Instant expiresAt = issuedAt.plus(Duration.ofHours(1));
 		OAuth2AccessToken accessToken = new OAuth2AccessToken(
 				OAuth2AccessToken.TokenType.BEARER, "access-token", issuedAt, expiresAt);
-		Map<String, Object> accessTokenClaims = Collections.singletonMap(JwtClaimNames.NBF, notBefore);
+		Map<String, Object> accessTokenClaims = Collections.singletonMap(OAuth2TokenClaimNames.NBF, notBefore);
 		OAuth2Authorization authorization = TestOAuth2Authorizations
 				.authorization(registeredClient, accessToken, accessTokenClaims)
 				.build();
@@ -217,9 +217,23 @@ public class OAuth2TokenIntrospectionAuthenticationProviderTests {
 		OAuth2AccessToken accessToken = new OAuth2AccessToken(
 				OAuth2AccessToken.TokenType.BEARER, "access-token", issuedAt, expiresAt,
 				new HashSet<>(Arrays.asList("scope1", "scope2")));
-		JwtClaimsSet jwtClaims = TestJwtClaimsSets.jwtClaimsSet().build();
+
+		// @formatter:off
+		OAuth2TokenClaimsSet claimsSet = OAuth2TokenClaimsSet.builder()
+				.issuer("https://provider.com")
+				.subject("subject")
+				.audience(Collections.singletonList(authorizedClient.getClientId()))
+				.issuedAt(issuedAt)
+				.notBefore(issuedAt)
+				.expiresAt(expiresAt)
+				.id("id")
+				.claim(OAuth2TokenIntrospectionClaimNames.SCOPE, accessToken.getScopes())
+				.claim("custom-claim", "custom-value")
+				.build();
+		// @formatter:on
+
 		OAuth2Authorization authorization = TestOAuth2Authorizations
-				.authorization(authorizedClient, accessToken, jwtClaims.getClaims())
+				.authorization(authorizedClient, accessToken, claimsSet.getClaims())
 				.build();
 		when(this.authorizationService.findByToken(eq(accessToken.getTokenValue()), isNull()))
 				.thenReturn(authorization);
@@ -241,13 +255,14 @@ public class OAuth2TokenIntrospectionAuthenticationProviderTests {
 		assertThat(tokenClaims.getClientId()).isEqualTo(authorizedClient.getClientId());
 		assertThat(tokenClaims.getIssuedAt()).isEqualTo(accessToken.getIssuedAt());
 		assertThat(tokenClaims.getExpiresAt()).isEqualTo(accessToken.getExpiresAt());
-		assertThat(tokenClaims.getScopes()).containsExactlyInAnyOrderElementsOf(accessToken.getScopes());
 		assertThat(tokenClaims.getTokenType()).isEqualTo(accessToken.getTokenType().getValue());
-		assertThat(tokenClaims.getNotBefore()).isEqualTo(jwtClaims.getNotBefore());
-		assertThat(tokenClaims.getSubject()).isEqualTo(jwtClaims.getSubject());
-		assertThat(tokenClaims.getAudience()).containsExactlyInAnyOrderElementsOf(jwtClaims.getAudience());
-		assertThat(tokenClaims.getIssuer()).isEqualTo(jwtClaims.getIssuer());
-		assertThat(tokenClaims.getId()).isEqualTo(jwtClaims.getId());
+		assertThat(tokenClaims.getNotBefore()).isEqualTo(claimsSet.getNotBefore());
+		assertThat(tokenClaims.getSubject()).isEqualTo(claimsSet.getSubject());
+		assertThat(tokenClaims.getAudience()).containsExactlyInAnyOrderElementsOf(claimsSet.getAudience());
+		assertThat(tokenClaims.getIssuer()).isEqualTo(claimsSet.getIssuer());
+		assertThat(tokenClaims.getId()).isEqualTo(claimsSet.getId());
+		assertThat(tokenClaims.getScopes()).containsExactlyInAnyOrderElementsOf(accessToken.getScopes());
+		assertThat(tokenClaims.<String>getClaim("custom-claim")).isEqualTo("custom-value");
 	}
 
 	@Test
