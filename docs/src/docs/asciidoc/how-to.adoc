@@ -1,0 +1,29 @@
+[[how-to]]
+= "How-to" Guides
+:toc: left
+:toclevels: 3
+
+This page is under construction.
+
+[[how-to-overview]]
+== Overview
+
+** Obtain an access token using a specific grant_type:
+*** `authorization_code`
+*** `client_credentials`
+*** `refresh_token`
+** Customize form based login
+** Authenticate a user with two-factor authentication
+** Customize the user consent page
+** Authenticate using OpenID Connect 1.0 authorization_code flow
+** Customize the OpenID Connect 1.0 UserInfo response
+** Authenticate using social login, e.g. Google
+** Authenticate a user in a Single Page Application with PKCE
+** Customize client authentication for specific authentication methods
+** Handle errors and customize the OAuth 2.0 Error response
+** Authorize an access token containing custom authorities, e.g. roles, groups, permissions, etc.
+*** Customize the headers / claims in a JWT
+** Deny access for a revoked JWT access token
+*** Introspect / revoke an access token
+** Provide a JWK source backed by a key rotation strategy
+** xref:guides/how-to-jpa.adoc[Implement core services with JPA]
