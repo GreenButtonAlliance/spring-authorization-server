@@ -69,17 +69,10 @@ import org.springframework.security.oauth2.core.oidc.endpoint.OidcParameterNames
 import org.springframework.security.oauth2.jose.TestJwks;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
-import org.springframework.security.oauth2.jwt.NimbusJwsEncoder;
-import org.springframework.security.oauth2.server.authorization.token.DelegatingOAuth2TokenGenerator;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
-import org.springframework.security.oauth2.server.authorization.JwtEncodingContext;
-import org.springframework.security.oauth2.server.authorization.token.JwtGenerator;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
-import org.springframework.security.oauth2.server.authorization.token.OAuth2RefreshTokenGenerator;
-import org.springframework.security.oauth2.server.authorization.OAuth2TokenContext;
-import org.springframework.security.oauth2.server.authorization.OAuth2TokenCustomizer;
-import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenGenerator;
 import org.springframework.security.oauth2.server.authorization.TestOAuth2Authorizations;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository.RegisteredClientParametersMapper;
@@ -88,6 +81,13 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 import org.springframework.security.oauth2.server.authorization.client.TestRegisteredClients;
 import org.springframework.security.oauth2.server.authorization.config.ProviderSettings;
 import org.springframework.security.oauth2.server.authorization.jackson2.TestingAuthenticationTokenMixin;
+import org.springframework.security.oauth2.server.authorization.token.DelegatingOAuth2TokenGenerator;
+import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
+import org.springframework.security.oauth2.server.authorization.token.JwtGenerator;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2RefreshTokenGenerator;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenContext;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenGenerator;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.test.web.servlet.MockMvc;
@@ -211,6 +211,41 @@ public class OidcTests {
 	}
 
 	@Test
+	public void loadContextWhenIssuerWithQueryThenThrowException() {
+		assertThatThrownBy(
+				() -> this.spring.register(AuthorizationServerConfigurationWithIssuerQuery.class).autowire()
+		);
+	}
+
+	@Test
+	public void loadContextWhenIssuerWithFragmentThenThrowException() {
+		assertThatThrownBy(
+				() -> this.spring.register(AuthorizationServerConfigurationWithIssuerFragment.class).autowire()
+		);
+	}
+
+	@Test
+	public void loadContextWhenIssuerWithQueryAndFragmentThenThrowException() {
+		assertThatThrownBy(
+				() -> this.spring.register(AuthorizationServerConfigurationWithIssuerQueryAndFragment.class).autowire()
+		);
+	}
+
+	@Test
+	public void loadContextWhenIssuerWithEmptyQueryThenThrowException() {
+		assertThatThrownBy(
+				() -> this.spring.register(AuthorizationServerConfigurationWithIssuerEmptyQuery.class).autowire()
+		);
+	}
+
+	@Test
+	public void loadContextWhenIssuerWithEmptyFragmentThenThrowException() {
+		assertThatThrownBy(
+				() -> this.spring.register(AuthorizationServerConfigurationWithIssuerEmptyFragment.class).autowire()
+		);
+	}
+
+	@Test
 	public void requestWhenAuthenticationRequestThenTokenResponseIncludesIdToken() throws Exception {
 		this.spring.register(AuthorizationServerConfiguration.class).autowire();
 
@@ -325,10 +360,9 @@ public class OidcTests {
 		}
 
 		@Bean
-		RegisteredClientRepository registeredClientRepository(JdbcOperations jdbcOperations, PasswordEncoder passwordEncoder) {
+		RegisteredClientRepository registeredClientRepository(JdbcOperations jdbcOperations) {
 			JdbcRegisteredClientRepository jdbcRegisteredClientRepository = new JdbcRegisteredClientRepository(jdbcOperations);
 			RegisteredClientParametersMapper registeredClientParametersMapper = new RegisteredClientParametersMapper();
-			registeredClientParametersMapper.setPasswordEncoder(passwordEncoder);
 			jdbcRegisteredClientRepository.setRegisteredClientParametersMapper(registeredClientParametersMapper);
 			return jdbcRegisteredClientRepository;
 		}
@@ -415,7 +449,7 @@ public class OidcTests {
 
 		@Bean
 		OAuth2TokenGenerator<?> tokenGenerator() {
-			JwtGenerator jwtGenerator = new JwtGenerator(new NimbusJwsEncoder(jwkSource()));
+			JwtGenerator jwtGenerator = new JwtGenerator(new NimbusJwtEncoder(jwkSource()));
 			jwtGenerator.setJwtCustomizer(jwtCustomizer());
 			OAuth2RefreshTokenGenerator refreshTokenGenerator = new OAuth2RefreshTokenGenerator();
 			OAuth2TokenGenerator<OAuth2Token> delegatingTokenGenerator =
@@ -457,6 +491,56 @@ public class OidcTests {
 		@Bean
 		ProviderSettings providerSettings() {
 			return ProviderSettings.builder().issuer("https://not a valid uri").build();
+		}
+	}
+
+	@EnableWebSecurity
+	@Import(OAuth2AuthorizationServerConfiguration.class)
+	static class AuthorizationServerConfigurationWithIssuerQuery extends AuthorizationServerConfiguration {
+
+		@Bean
+		ProviderSettings providerSettings() {
+			return ProviderSettings.builder().issuer(ISSUER_URL + "?param=value").build();
+		}
+	}
+
+	@EnableWebSecurity
+	@Import(OAuth2AuthorizationServerConfiguration.class)
+	static class AuthorizationServerConfigurationWithIssuerFragment extends AuthorizationServerConfiguration {
+
+		@Bean
+		ProviderSettings providerSettings() {
+			return ProviderSettings.builder().issuer(ISSUER_URL + "#fragment").build();
+		}
+	}
+
+	@EnableWebSecurity
+	@Import(OAuth2AuthorizationServerConfiguration.class)
+	static class AuthorizationServerConfigurationWithIssuerQueryAndFragment extends AuthorizationServerConfiguration {
+
+		@Bean
+		ProviderSettings providerSettings() {
+			return ProviderSettings.builder().issuer(ISSUER_URL + "?param=value#fragment").build();
+		}
+	}
+
+	@EnableWebSecurity
+	@Import(OAuth2AuthorizationServerConfiguration.class)
+	static class AuthorizationServerConfigurationWithIssuerEmptyQuery extends AuthorizationServerConfiguration {
+
+		@Bean
+		ProviderSettings providerSettings() {
+			return ProviderSettings.builder().issuer(ISSUER_URL + "?").build();
+		}
+	}
+
+	@EnableWebSecurity
+	@Import(OAuth2AuthorizationServerConfiguration.class)
+	static class AuthorizationServerConfigurationWithIssuerEmptyFragment extends AuthorizationServerConfiguration {
+
+		@Bean
+		ProviderSettings providerSettings() {
+			return ProviderSettings.builder().issuer(ISSUER_URL + "#").build();
 		}
 	}
 
