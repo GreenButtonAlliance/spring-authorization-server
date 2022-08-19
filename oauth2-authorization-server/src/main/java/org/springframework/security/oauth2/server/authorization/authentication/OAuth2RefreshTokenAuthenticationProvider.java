@@ -32,13 +32,13 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.OAuth2RefreshToken;
 import org.springframework.security.oauth2.core.OAuth2Token;
-import org.springframework.security.oauth2.core.OAuth2TokenType;
 import org.springframework.security.oauth2.core.oidc.OidcIdToken;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.core.oidc.endpoint.OidcParameterNames;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
+import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.context.ProviderContextHolder;
 import org.springframework.security.oauth2.server.authorization.token.DefaultOAuth2TokenContext;
@@ -118,7 +118,7 @@ public final class OAuth2RefreshTokenAuthenticationProvider implements Authentic
 		// The requested scope MUST NOT include any scope not originally granted by the resource owner,
 		// and if omitted is treated as equal to the scope originally granted by the resource owner.
 		Set<String> scopes = refreshTokenAuthentication.getScopes();
-		Set<String> authorizedScopes = authorization.getAttribute(OAuth2Authorization.AUTHORIZED_SCOPE_ATTRIBUTE_NAME);
+		Set<String> authorizedScopes = authorization.getAuthorizedScopes();
 		if (!authorizedScopes.containsAll(scopes)) {
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_SCOPE);
 		}
@@ -176,7 +176,12 @@ public final class OAuth2RefreshTokenAuthenticationProvider implements Authentic
 		// ----- ID token -----
 		OidcIdToken idToken;
 		if (authorizedScopes.contains(OidcScopes.OPENID)) {
-			tokenContext = tokenContextBuilder.tokenType(ID_TOKEN_TOKEN_TYPE).build();
+			// @formatter:off
+			tokenContext = tokenContextBuilder
+					.tokenType(ID_TOKEN_TOKEN_TYPE)
+					.authorization(authorizationBuilder.build())	// ID token customizer may need access to the access token and/or refresh token
+					.build();
+			// @formatter:on
 			OAuth2Token generatedIdToken = this.tokenGenerator.generate(tokenContext);
 			if (!(generatedIdToken instanceof Jwt)) {
 				OAuth2Error error = new OAuth2Error(OAuth2ErrorCodes.SERVER_ERROR,

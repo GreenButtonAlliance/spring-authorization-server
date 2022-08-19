@@ -31,28 +31,27 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
-import org.springframework.security.oauth2.core.OAuth2AuthorizationCode;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
-import org.springframework.security.oauth2.core.OAuth2TokenType;
-import org.springframework.security.oauth2.core.authentication.OAuth2AuthenticationValidator;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationResponseType;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.core.endpoint.PkceParameterNames;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsent;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
+import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.TestOAuth2Authorizations;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.TestRegisteredClients;
-import org.springframework.security.oauth2.server.authorization.config.ClientSettings;
-import org.springframework.security.oauth2.server.authorization.config.ProviderSettings;
 import org.springframework.security.oauth2.server.authorization.context.ProviderContext;
 import org.springframework.security.oauth2.server.authorization.context.ProviderContextHolder;
+import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
+import org.springframework.security.oauth2.server.authorization.settings.ProviderSettings;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenGenerator;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -207,7 +206,10 @@ public class OAuth2AuthorizationCodeRequestAuthenticationProviderTests {
 				.satisfies(ex ->
 						assertAuthenticationException((OAuth2AuthorizationCodeRequestAuthenticationException) ex,
 								OAuth2ErrorCodes.INVALID_REQUEST, OAuth2ParameterNames.REDIRECT_URI, null)
-				);
+				)
+				.extracting(ex -> ((OAuth2AuthorizationCodeRequestAuthenticationException) ex).getError())
+				.satisfies(error ->
+						assertThat(error.getDescription()).isEqualTo("localhost is not allowed for the redirect_uri (https://localhost:5000). Use the IP literal (127.0.0.1) instead."));
 	}
 
 	@Test
@@ -365,6 +367,26 @@ public class OAuth2AuthorizationCodeRequestAuthenticationProviderTests {
 		Map<String, Object> additionalParameters = new HashMap<>();
 		additionalParameters.put(PkceParameterNames.CODE_CHALLENGE, "code-challenge");
 		additionalParameters.put(PkceParameterNames.CODE_CHALLENGE_METHOD, "unsupported");
+		OAuth2AuthorizationCodeRequestAuthenticationToken authentication =
+				authorizationCodeRequestAuthentication(registeredClient, this.principal)
+						.additionalParameters(additionalParameters)
+						.build();
+		assertThatThrownBy(() -> this.authenticationProvider.authenticate(authentication))
+				.isInstanceOf(OAuth2AuthorizationCodeRequestAuthenticationException.class)
+				.satisfies(ex ->
+						assertAuthenticationException((OAuth2AuthorizationCodeRequestAuthenticationException) ex,
+								OAuth2ErrorCodes.INVALID_REQUEST, PkceParameterNames.CODE_CHALLENGE_METHOD, authentication.getRedirectUri())
+				);
+	}
+
+	// gh-770
+	@Test
+	public void authenticateWhenPkceMissingCodeChallengeMethodThenThrowOAuth2AuthorizationCodeRequestAuthenticationException() {
+		RegisteredClient registeredClient = TestRegisteredClients.registeredClient().build();
+		when(this.registeredClientRepository.findByClientId(eq(registeredClient.getClientId())))
+				.thenReturn(registeredClient);
+		Map<String, Object> additionalParameters = new HashMap<>();
+		additionalParameters.put(PkceParameterNames.CODE_CHALLENGE, "code-challenge");
 		OAuth2AuthorizationCodeRequestAuthenticationToken authentication =
 				authorizationCodeRequestAuthentication(registeredClient, this.principal)
 						.additionalParameters(additionalParameters)
@@ -582,7 +604,7 @@ public class OAuth2AuthorizationCodeRequestAuthenticationProviderTests {
 		assertThat(authorization.<Authentication>getAttribute(Principal.class.getName())).isEqualTo(this.principal);
 
 		OAuth2Authorization.Token<OAuth2AuthorizationCode> authorizationCode = authorization.getToken(OAuth2AuthorizationCode.class);
-		Set<String> authorizedScopes = authorization.getAttribute(OAuth2Authorization.AUTHORIZED_SCOPE_ATTRIBUTE_NAME);
+		Set<String> authorizedScopes = authorization.getAuthorizedScopes();
 
 		assertThat(authenticationResult.getClientId()).isEqualTo(registeredClient.getClientId());
 		assertThat(authenticationResult.getPrincipal()).isEqualTo(this.principal);
@@ -853,8 +875,7 @@ public class OAuth2AuthorizationCodeRequestAuthenticationProviderTests {
 		OAuth2Authorization.Token<OAuth2AuthorizationCode> authorizationCode = updatedAuthorization.getToken(OAuth2AuthorizationCode.class);
 		assertThat(authorizationCode).isNotNull();
 		assertThat(updatedAuthorization.<String>getAttribute(OAuth2ParameterNames.STATE)).isNull();
-		assertThat(updatedAuthorization.<Set<String>>getAttribute(OAuth2Authorization.AUTHORIZED_SCOPE_ATTRIBUTE_NAME))
-				.isEqualTo(authorizedScopes);
+		assertThat(updatedAuthorization.getAuthorizedScopes()).isEqualTo(authorizedScopes);
 
 		assertThat(authenticationResult.getClientId()).isEqualTo(registeredClient.getClientId());
 		assertThat(authenticationResult.getPrincipal()).isEqualTo(this.principal);
@@ -959,10 +980,7 @@ public class OAuth2AuthorizationCodeRequestAuthenticationProviderTests {
 		ArgumentCaptor<OAuth2Authorization> authorizationCaptor = ArgumentCaptor.forClass(OAuth2Authorization.class);
 		verify(this.authorizationService).save(authorizationCaptor.capture());
 		OAuth2Authorization updatedAuthorization = authorizationCaptor.getValue();
-
-		assertThat(updatedAuthorization.<Set<String>>getAttribute(OAuth2Authorization.AUTHORIZED_SCOPE_ATTRIBUTE_NAME))
-				.isEqualTo(requestedScopes);
-
+		assertThat(updatedAuthorization.getAuthorizedScopes()).isEqualTo(requestedScopes);
 		assertThat(authenticationResult.getScopes()).isEqualTo(requestedScopes);
 	}
 
