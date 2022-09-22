@@ -15,8 +15,12 @@
  */
 package org.springframework.security.oauth2.server.authorization.authentication;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Consumer;
 
+import org.springframework.lang.Nullable;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsent;
@@ -32,11 +36,26 @@ import org.springframework.util.Assert;
  * @since 0.2.1
  * @see OAuth2AuthenticationContext
  * @see OAuth2AuthorizationConsent
+ * @see OAuth2AuthorizationConsentAuthenticationProvider#setAuthorizationConsentCustomizer(Consumer)
  */
-public final class OAuth2AuthorizationConsentAuthenticationContext extends OAuth2AuthenticationContext {
+public final class OAuth2AuthorizationConsentAuthenticationContext implements OAuth2AuthenticationContext {
+	private final Map<Object, Object> context;
 
 	private OAuth2AuthorizationConsentAuthenticationContext(Map<Object, Object> context) {
-		super(context);
+		this.context = Collections.unmodifiableMap(new HashMap<>(context));
+	}
+
+	@SuppressWarnings("unchecked")
+	@Nullable
+	@Override
+	public <V> V get(Object key) {
+		return hasKey(key) ? (V) this.context.get(key) : null;
+	}
+
+	@Override
+	public boolean hasKey(Object key) {
+		Assert.notNull(key, "key cannot be null");
+		return this.context.containsKey(key);
 	}
 
 	/**
@@ -76,12 +95,12 @@ public final class OAuth2AuthorizationConsentAuthenticationContext extends OAuth
 	}
 
 	/**
-	 * Constructs a new {@link Builder} with the provided {@link OAuth2AuthorizationCodeRequestAuthenticationToken}.
+	 * Constructs a new {@link Builder} with the provided {@link OAuth2AuthorizationConsentAuthenticationToken}.
 	 *
-	 * @param authentication the {@link OAuth2AuthorizationCodeRequestAuthenticationToken}
+	 * @param authentication the {@link OAuth2AuthorizationConsentAuthenticationToken}
 	 * @return the {@link Builder}
 	 */
-	public static Builder with(OAuth2AuthorizationCodeRequestAuthenticationToken authentication) {
+	public static Builder with(OAuth2AuthorizationConsentAuthenticationToken authentication) {
 		return new Builder(authentication);
 	}
 
@@ -90,7 +109,7 @@ public final class OAuth2AuthorizationConsentAuthenticationContext extends OAuth
 	 */
 	public static final class Builder extends AbstractBuilder<OAuth2AuthorizationConsentAuthenticationContext, Builder> {
 
-		private Builder(OAuth2AuthorizationCodeRequestAuthenticationToken authentication) {
+		private Builder(OAuth2AuthorizationConsentAuthenticationToken authentication) {
 			super(authentication);
 		}
 

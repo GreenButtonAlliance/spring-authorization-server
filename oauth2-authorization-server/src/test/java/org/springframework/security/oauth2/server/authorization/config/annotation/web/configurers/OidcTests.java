@@ -80,7 +80,6 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 import org.springframework.security.oauth2.server.authorization.client.TestRegisteredClients;
 import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
 import org.springframework.security.oauth2.server.authorization.jackson2.TestingAuthenticationTokenMixin;
-import org.springframework.security.oauth2.server.authorization.settings.ProviderSettings;
 import org.springframework.security.oauth2.server.authorization.test.SpringTestRule;
 import org.springframework.security.oauth2.server.authorization.token.DelegatingOAuth2TokenGenerator;
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
@@ -100,7 +99,6 @@ import org.springframework.web.util.UriComponents;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.spy;
@@ -122,8 +120,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 public class OidcTests {
 	private static final String DEFAULT_AUTHORIZATION_ENDPOINT_URI = "/oauth2/authorize";
 	private static final String DEFAULT_TOKEN_ENDPOINT_URI = "/oauth2/token";
-	private static final String DEFAULT_OIDC_PROVIDER_CONFIGURATION_ENDPOINT_URI = "/.well-known/openid-configuration";
-	private static final String ISSUER_URL = "https://example.com/issuer1";
 	private static final String AUTHORITIES_CLAIM = "authorities";
 	private static final OAuth2TokenType AUTHORIZATION_CODE_TOKEN_TYPE = new OAuth2TokenType(OAuth2ParameterNames.CODE);
 	private static EmbeddedDatabase db;
@@ -176,74 +172,6 @@ public class OidcTests {
 	@AfterClass
 	public static void destroy() {
 		db.shutdown();
-	}
-
-	@Test
-	public void requestWhenConfigurationRequestAndIssuerSetThenReturnConfigurationResponse() throws Exception {
-		this.spring.register(AuthorizationServerConfigurationWithIssuer.class).autowire();
-
-		this.mvc.perform(get(DEFAULT_OIDC_PROVIDER_CONFIGURATION_ENDPOINT_URI))
-				.andExpect(status().is2xxSuccessful())
-				.andExpect(jsonPath("issuer").value(ISSUER_URL));
-	}
-
-	// gh-632
-	@Test
-	public void requestWhenConfigurationRequestAndUserAuthenticatedThenReturnConfigurationResponse() throws Exception {
-		this.spring.register(AuthorizationServerConfiguration.class).autowire();
-
-		this.mvc.perform(get(DEFAULT_OIDC_PROVIDER_CONFIGURATION_ENDPOINT_URI)
-				.with(user("user")))
-				.andExpect(status().is2xxSuccessful());
-	}
-
-	@Test
-	public void loadContextWhenIssuerNotValidUrlThenThrowException() {
-		assertThatThrownBy(
-				() -> this.spring.register(AuthorizationServerConfigurationWithInvalidIssuerUrl.class).autowire()
-		);
-	}
-
-	@Test
-	public void loadContextWhenIssuerNotValidUriThenThrowException() {
-		assertThatThrownBy(
-				() -> this.spring.register(AuthorizationServerConfigurationWithInvalidIssuerUri.class).autowire()
-		);
-	}
-
-	@Test
-	public void loadContextWhenIssuerWithQueryThenThrowException() {
-		assertThatThrownBy(
-				() -> this.spring.register(AuthorizationServerConfigurationWithIssuerQuery.class).autowire()
-		);
-	}
-
-	@Test
-	public void loadContextWhenIssuerWithFragmentThenThrowException() {
-		assertThatThrownBy(
-				() -> this.spring.register(AuthorizationServerConfigurationWithIssuerFragment.class).autowire()
-		);
-	}
-
-	@Test
-	public void loadContextWhenIssuerWithQueryAndFragmentThenThrowException() {
-		assertThatThrownBy(
-				() -> this.spring.register(AuthorizationServerConfigurationWithIssuerQueryAndFragment.class).autowire()
-		);
-	}
-
-	@Test
-	public void loadContextWhenIssuerWithEmptyQueryThenThrowException() {
-		assertThatThrownBy(
-				() -> this.spring.register(AuthorizationServerConfigurationWithIssuerEmptyQuery.class).autowire()
-		);
-	}
-
-	@Test
-	public void loadContextWhenIssuerWithEmptyFragmentThenThrowException() {
-		assertThatThrownBy(
-				() -> this.spring.register(AuthorizationServerConfigurationWithIssuerEmptyFragment.class).autowire()
-		);
 	}
 
 	@Test
@@ -464,86 +392,6 @@ public class OidcTests {
 			});
 		}
 
-	}
-
-	@EnableWebSecurity
-	@Import(OAuth2AuthorizationServerConfiguration.class)
-	static class AuthorizationServerConfigurationWithIssuer extends AuthorizationServerConfiguration {
-
-		@Bean
-		ProviderSettings providerSettings() {
-			return ProviderSettings.builder().issuer(ISSUER_URL).build();
-		}
-	}
-
-	@EnableWebSecurity
-	@Import(OAuth2AuthorizationServerConfiguration.class)
-	static class AuthorizationServerConfigurationWithInvalidIssuerUrl extends AuthorizationServerConfiguration {
-
-		@Bean
-		ProviderSettings providerSettings() {
-			return ProviderSettings.builder().issuer("urn:example").build();
-		}
-	}
-
-	@EnableWebSecurity
-	@Import(OAuth2AuthorizationServerConfiguration.class)
-	static class AuthorizationServerConfigurationWithInvalidIssuerUri extends AuthorizationServerConfiguration {
-
-		@Bean
-		ProviderSettings providerSettings() {
-			return ProviderSettings.builder().issuer("https://not a valid uri").build();
-		}
-	}
-
-	@EnableWebSecurity
-	@Import(OAuth2AuthorizationServerConfiguration.class)
-	static class AuthorizationServerConfigurationWithIssuerQuery extends AuthorizationServerConfiguration {
-
-		@Bean
-		ProviderSettings providerSettings() {
-			return ProviderSettings.builder().issuer(ISSUER_URL + "?param=value").build();
-		}
-	}
-
-	@EnableWebSecurity
-	@Import(OAuth2AuthorizationServerConfiguration.class)
-	static class AuthorizationServerConfigurationWithIssuerFragment extends AuthorizationServerConfiguration {
-
-		@Bean
-		ProviderSettings providerSettings() {
-			return ProviderSettings.builder().issuer(ISSUER_URL + "#fragment").build();
-		}
-	}
-
-	@EnableWebSecurity
-	@Import(OAuth2AuthorizationServerConfiguration.class)
-	static class AuthorizationServerConfigurationWithIssuerQueryAndFragment extends AuthorizationServerConfiguration {
-
-		@Bean
-		ProviderSettings providerSettings() {
-			return ProviderSettings.builder().issuer(ISSUER_URL + "?param=value#fragment").build();
-		}
-	}
-
-	@EnableWebSecurity
-	@Import(OAuth2AuthorizationServerConfiguration.class)
-	static class AuthorizationServerConfigurationWithIssuerEmptyQuery extends AuthorizationServerConfiguration {
-
-		@Bean
-		ProviderSettings providerSettings() {
-			return ProviderSettings.builder().issuer(ISSUER_URL + "?").build();
-		}
-	}
-
-	@EnableWebSecurity
-	@Import(OAuth2AuthorizationServerConfiguration.class)
-	static class AuthorizationServerConfigurationWithIssuerEmptyFragment extends AuthorizationServerConfiguration {
-
-		@Bean
-		ProviderSettings providerSettings() {
-			return ProviderSettings.builder().issuer(ISSUER_URL + "#").build();
-		}
 	}
 
 }

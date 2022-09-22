@@ -31,11 +31,9 @@ import org.springframework.security.oauth2.core.OAuth2Token;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
-import org.springframework.security.oauth2.server.authorization.settings.ProviderSettings;
+import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenGenerator;
 import org.springframework.security.oauth2.server.authorization.web.NimbusJwkSetEndpointFilter;
-import org.springframework.security.oauth2.server.authorization.web.OAuth2AuthorizationServerMetadataEndpointFilter;
-import org.springframework.security.oauth2.server.authorization.web.ProviderContextFilter;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.preauth.AbstractPreAuthenticatedProcessingFilter;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
@@ -55,6 +53,7 @@ import org.springframework.util.Assert;
  * @since 0.0.1
  * @see AbstractHttpConfigurer
  * @see OAuth2ClientAuthenticationConfigurer
+ * @see OAuth2AuthorizationServerMetadataEndpointConfigurer
  * @see OAuth2AuthorizationEndpointConfigurer
  * @see OAuth2TokenEndpointConfigurer
  * @see OAuth2TokenIntrospectionEndpointConfigurer
@@ -64,22 +63,20 @@ import org.springframework.util.Assert;
  * @see OAuth2AuthorizationService
  * @see OAuth2AuthorizationConsentService
  * @see NimbusJwkSetEndpointFilter
- * @see OAuth2AuthorizationServerMetadataEndpointFilter
  */
 public final class OAuth2AuthorizationServerConfigurer
 		extends AbstractHttpConfigurer<OAuth2AuthorizationServerConfigurer, HttpSecurity> {
 
 	private final Map<Class<? extends AbstractOAuth2Configurer>, AbstractOAuth2Configurer> configurers = createConfigurers();
-	private RequestMatcher jwkSetEndpointMatcher;
-	private RequestMatcher authorizationServerMetadataEndpointMatcher;
 	private final RequestMatcher endpointsMatcher = (request) ->
-			getRequestMatcher(OAuth2AuthorizationEndpointConfigurer.class).matches(request) ||
-			getRequestMatcher(OAuth2TokenEndpointConfigurer.class).matches(request) ||
-			getRequestMatcher(OAuth2TokenIntrospectionEndpointConfigurer.class).matches(request) ||
-			getRequestMatcher(OAuth2TokenRevocationEndpointConfigurer.class).matches(request) ||
-			getRequestMatcher(OidcConfigurer.class).matches(request) ||
-			this.jwkSetEndpointMatcher.matches(request) ||
-			this.authorizationServerMetadataEndpointMatcher.matches(request);
+					getRequestMatcher(OAuth2AuthorizationServerMetadataEndpointConfigurer.class).matches(request) ||
+					getRequestMatcher(OAuth2AuthorizationEndpointConfigurer.class).matches(request) ||
+					getRequestMatcher(OAuth2TokenEndpointConfigurer.class).matches(request) ||
+					getRequestMatcher(OAuth2TokenIntrospectionEndpointConfigurer.class).matches(request) ||
+					getRequestMatcher(OAuth2TokenRevocationEndpointConfigurer.class).matches(request) ||
+					getRequestMatcher(OidcConfigurer.class).matches(request) ||
+					this.jwkSetEndpointMatcher.matches(request);
+	private RequestMatcher jwkSetEndpointMatcher;
 
 	/**
 	 * Sets the repository of registered clients.
@@ -118,14 +115,14 @@ public final class OAuth2AuthorizationServerConfigurer
 	}
 
 	/**
-	 * Sets the provider settings.
+	 * Sets the authorization server settings.
 	 *
-	 * @param providerSettings the provider settings
+	 * @param authorizationServerSettings the authorization server settings
 	 * @return the {@link OAuth2AuthorizationServerConfigurer} for further configuration
 	 */
-	public OAuth2AuthorizationServerConfigurer providerSettings(ProviderSettings providerSettings) {
-		Assert.notNull(providerSettings, "providerSettings cannot be null");
-		getBuilder().setSharedObject(ProviderSettings.class, providerSettings);
+	public OAuth2AuthorizationServerConfigurer authorizationServerSettings(AuthorizationServerSettings authorizationServerSettings) {
+		Assert.notNull(authorizationServerSettings, "authorizationServerSettings cannot be null");
+		getBuilder().setSharedObject(AuthorizationServerSettings.class, authorizationServerSettings);
 		return this;
 	}
 
@@ -150,6 +147,18 @@ public final class OAuth2AuthorizationServerConfigurer
 	 */
 	public OAuth2AuthorizationServerConfigurer clientAuthentication(Customizer<OAuth2ClientAuthenticationConfigurer> clientAuthenticationCustomizer) {
 		clientAuthenticationCustomizer.customize(getConfigurer(OAuth2ClientAuthenticationConfigurer.class));
+		return this;
+	}
+
+	/**
+	 * Configures the OAuth 2.0 Authorization Server Metadata Endpoint.
+	 *
+	 * @param authorizationServerMetadataEndpointCustomizer the {@link Customizer} providing access to the {@link OAuth2AuthorizationServerMetadataEndpointConfigurer}
+	 * @return the {@link OAuth2AuthorizationServerConfigurer} for further configuration
+	 * @since 0.4.0
+	 */
+	public OAuth2AuthorizationServerConfigurer authorizationServerMetadataEndpoint(Customizer<OAuth2AuthorizationServerMetadataEndpointConfigurer> authorizationServerMetadataEndpointCustomizer) {
+		authorizationServerMetadataEndpointCustomizer.customize(getConfigurer(OAuth2AuthorizationServerMetadataEndpointConfigurer.class));
 		return this;
 	}
 
@@ -221,9 +230,11 @@ public final class OAuth2AuthorizationServerConfigurer
 
 	@Override
 	public void init(HttpSecurity httpSecurity) {
-		ProviderSettings providerSettings = OAuth2ConfigurerUtils.getProviderSettings(httpSecurity);
-		validateProviderSettings(providerSettings);
-		initEndpointMatchers(providerSettings);
+		AuthorizationServerSettings authorizationServerSettings = OAuth2ConfigurerUtils.getAuthorizationServerSettings(httpSecurity);
+		validateAuthorizationServerSettings(authorizationServerSettings);
+
+		this.jwkSetEndpointMatcher = new AntPathRequestMatcher(
+				authorizationServerSettings.getJwkSetEndpoint(), HttpMethod.GET.name());
 
 		this.configurers.values().forEach(configurer -> configurer.init(httpSecurity));
 
@@ -243,26 +254,23 @@ public final class OAuth2AuthorizationServerConfigurer
 	public void configure(HttpSecurity httpSecurity) {
 		this.configurers.values().forEach(configurer -> configurer.configure(httpSecurity));
 
-		ProviderSettings providerSettings = OAuth2ConfigurerUtils.getProviderSettings(httpSecurity);
+		AuthorizationServerSettings authorizationServerSettings = OAuth2ConfigurerUtils.getAuthorizationServerSettings(httpSecurity);
 
-		ProviderContextFilter providerContextFilter = new ProviderContextFilter(providerSettings);
-		httpSecurity.addFilterAfter(postProcess(providerContextFilter), SecurityContextHolderFilter.class);
+		AuthorizationServerContextFilter authorizationServerContextFilter = new AuthorizationServerContextFilter(authorizationServerSettings);
+		httpSecurity.addFilterAfter(postProcess(authorizationServerContextFilter), SecurityContextHolderFilter.class);
 
 		JWKSource<com.nimbusds.jose.proc.SecurityContext> jwkSource = OAuth2ConfigurerUtils.getJwkSource(httpSecurity);
 		if (jwkSource != null) {
 			NimbusJwkSetEndpointFilter jwkSetEndpointFilter = new NimbusJwkSetEndpointFilter(
-					jwkSource, providerSettings.getJwkSetEndpoint());
+					jwkSource, authorizationServerSettings.getJwkSetEndpoint());
 			httpSecurity.addFilterBefore(postProcess(jwkSetEndpointFilter), AbstractPreAuthenticatedProcessingFilter.class);
 		}
-
-		OAuth2AuthorizationServerMetadataEndpointFilter authorizationServerMetadataEndpointFilter =
-				new OAuth2AuthorizationServerMetadataEndpointFilter(providerSettings);
-		httpSecurity.addFilterBefore(postProcess(authorizationServerMetadataEndpointFilter), AbstractPreAuthenticatedProcessingFilter.class);
 	}
 
 	private Map<Class<? extends AbstractOAuth2Configurer>, AbstractOAuth2Configurer> createConfigurers() {
 		Map<Class<? extends AbstractOAuth2Configurer>, AbstractOAuth2Configurer> configurers = new LinkedHashMap<>();
 		configurers.put(OAuth2ClientAuthenticationConfigurer.class, new OAuth2ClientAuthenticationConfigurer(this::postProcess));
+		configurers.put(OAuth2AuthorizationServerMetadataEndpointConfigurer.class, new OAuth2AuthorizationServerMetadataEndpointConfigurer(this::postProcess));
 		configurers.put(OAuth2AuthorizationEndpointConfigurer.class, new OAuth2AuthorizationEndpointConfigurer(this::postProcess));
 		configurers.put(OAuth2TokenEndpointConfigurer.class, new OAuth2TokenEndpointConfigurer(this::postProcess));
 		configurers.put(OAuth2TokenIntrospectionEndpointConfigurer.class, new OAuth2TokenIntrospectionEndpointConfigurer(this::postProcess));
@@ -280,18 +288,11 @@ public final class OAuth2AuthorizationServerConfigurer
 		return getConfigurer(configurerType).getRequestMatcher();
 	}
 
-	private void initEndpointMatchers(ProviderSettings providerSettings) {
-		this.jwkSetEndpointMatcher = new AntPathRequestMatcher(
-				providerSettings.getJwkSetEndpoint(), HttpMethod.GET.name());
-		this.authorizationServerMetadataEndpointMatcher = new AntPathRequestMatcher(
-				"/.well-known/oauth-authorization-server", HttpMethod.GET.name());
-	}
-
-	private static void validateProviderSettings(ProviderSettings providerSettings) {
-		if (providerSettings.getIssuer() != null) {
+	private static void validateAuthorizationServerSettings(AuthorizationServerSettings authorizationServerSettings) {
+		if (authorizationServerSettings.getIssuer() != null) {
 			URI issuerUri;
 			try {
-				issuerUri = new URI(providerSettings.getIssuer());
+				issuerUri = new URI(authorizationServerSettings.getIssuer());
 				issuerUri.toURL();
 			} catch (Exception ex) {
 				throw new IllegalArgumentException("issuer must be a valid URL", ex);

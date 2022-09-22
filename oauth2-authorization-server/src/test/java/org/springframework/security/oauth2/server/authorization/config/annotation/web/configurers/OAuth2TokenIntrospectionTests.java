@@ -25,6 +25,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.function.Consumer;
 
 import org.junit.After;
 import org.junit.AfterClass;
@@ -72,6 +73,7 @@ import org.springframework.security.oauth2.server.authorization.OAuth2TokenIntro
 import org.springframework.security.oauth2.server.authorization.OAuth2TokenType;
 import org.springframework.security.oauth2.server.authorization.TestOAuth2Authorizations;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2ClientAuthenticationToken;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2TokenIntrospectionAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2TokenIntrospectionAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository.RegisteredClientParametersMapper;
@@ -81,13 +83,14 @@ import org.springframework.security.oauth2.server.authorization.client.TestRegis
 import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
 import org.springframework.security.oauth2.server.authorization.http.converter.OAuth2TokenIntrospectionHttpMessageConverter;
 import org.springframework.security.oauth2.server.authorization.jackson2.TestingAuthenticationTokenMixin;
+import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat;
-import org.springframework.security.oauth2.server.authorization.settings.ProviderSettings;
 import org.springframework.security.oauth2.server.authorization.settings.TokenSettings;
 import org.springframework.security.oauth2.server.authorization.test.SpringTestRule;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenClaimsContext;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenClaimsSet;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
+import org.springframework.security.oauth2.server.authorization.web.authentication.OAuth2TokenIntrospectionAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationConverter;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
@@ -115,10 +118,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 public class OAuth2TokenIntrospectionTests {
 	private static EmbeddedDatabase db;
-	private static ProviderSettings providerSettings;
+	private static AuthorizationServerSettings authorizationServerSettings;
 	private static OAuth2TokenCustomizer<OAuth2TokenClaimsContext> accessTokenCustomizer;
 	private static AuthenticationConverter authenticationConverter;
+	private static Consumer<List<AuthenticationConverter>> authenticationConvertersConsumer;
 	private static AuthenticationProvider authenticationProvider;
+	private static Consumer<List<AuthenticationProvider>> authenticationProvidersConsumer;
 	private static AuthenticationSuccessHandler authenticationSuccessHandler;
 	private static AuthenticationFailureHandler authenticationFailureHandler;
 	private static final HttpMessageConverter<OAuth2TokenIntrospection> tokenIntrospectionHttpResponseConverter =
@@ -143,9 +148,11 @@ public class OAuth2TokenIntrospectionTests {
 
 	@BeforeClass
 	public static void init() {
-		providerSettings = ProviderSettings.builder().tokenIntrospectionEndpoint("/test/introspect").build();
+		authorizationServerSettings = AuthorizationServerSettings.builder().tokenIntrospectionEndpoint("/test/introspect").build();
 		authenticationConverter = mock(AuthenticationConverter.class);
+		authenticationConvertersConsumer = mock(Consumer.class);
 		authenticationProvider = mock(AuthenticationProvider.class);
+		authenticationProvidersConsumer = mock(Consumer.class);
 		authenticationSuccessHandler = mock(AuthenticationSuccessHandler.class);
 		authenticationFailureHandler = mock(AuthenticationFailureHandler.class);
 		accessTokenCustomizer = mock(OAuth2TokenCustomizer.class);
@@ -202,7 +209,7 @@ public class OAuth2TokenIntrospectionTests {
 		this.authorizationService.save(authorization);
 
 		// @formatter:off
-		MvcResult mvcResult = this.mvc.perform(post(providerSettings.getTokenIntrospectionEndpoint())
+		MvcResult mvcResult = this.mvc.perform(post(authorizationServerSettings.getTokenIntrospectionEndpoint())
 				.params(getTokenIntrospectionRequestParameters(accessToken, OAuth2TokenType.ACCESS_TOKEN))
 				.header(HttpHeaders.AUTHORIZATION, getAuthorizationHeader(introspectRegisteredClient)))
 				.andExpect(status().isOk())
@@ -242,7 +249,7 @@ public class OAuth2TokenIntrospectionTests {
 		this.authorizationService.save(authorization);
 
 		// @formatter:off
-		MvcResult mvcResult = this.mvc.perform(post(providerSettings.getTokenIntrospectionEndpoint())
+		MvcResult mvcResult = this.mvc.perform(post(authorizationServerSettings.getTokenIntrospectionEndpoint())
 				.params(getTokenIntrospectionRequestParameters(refreshToken, OAuth2TokenType.REFRESH_TOKEN))
 				.header(HttpHeaders.AUTHORIZATION, getAuthorizationHeader(introspectRegisteredClient)))
 				.andExpect(status().isOk())
@@ -284,7 +291,7 @@ public class OAuth2TokenIntrospectionTests {
 		this.authorizationService.save(authorization);
 
 		// @formatter:off
-		MvcResult mvcResult = this.mvc.perform(post(providerSettings.getTokenEndpoint())
+		MvcResult mvcResult = this.mvc.perform(post(authorizationServerSettings.getTokenEndpoint())
 				.params(getAuthorizationCodeTokenRequestParameters(authorizedRegisteredClient, authorization))
 				.header(HttpHeaders.AUTHORIZATION, getAuthorizationHeader(authorizedRegisteredClient)))
 				.andExpect(status().isOk())
@@ -298,7 +305,7 @@ public class OAuth2TokenIntrospectionTests {
 		this.registeredClientRepository.save(introspectRegisteredClient);
 
 		// @formatter:off
-		mvcResult = this.mvc.perform(post(providerSettings.getTokenIntrospectionEndpoint())
+		mvcResult = this.mvc.perform(post(authorizationServerSettings.getTokenIntrospectionEndpoint())
 				.params(getTokenIntrospectionRequestParameters(accessToken, OAuth2TokenType.ACCESS_TOKEN))
 				.header(HttpHeaders.AUTHORIZATION, getAuthorizationHeader(introspectRegisteredClient)))
 				.andExpect(status().isOk())
@@ -357,14 +364,32 @@ public class OAuth2TokenIntrospectionTests {
 		when(authenticationProvider.authenticate(any())).thenReturn(tokenIntrospectionAuthentication);
 
 		// @formatter:off
-		this.mvc.perform(post(providerSettings.getTokenIntrospectionEndpoint())
+		this.mvc.perform(post(authorizationServerSettings.getTokenIntrospectionEndpoint())
 				.params(getTokenIntrospectionRequestParameters(accessToken, OAuth2TokenType.ACCESS_TOKEN))
 				.header(HttpHeaders.AUTHORIZATION, getAuthorizationHeader(introspectRegisteredClient)))
 				.andExpect(status().isOk());
 		// @formatter:on
 
 		verify(authenticationConverter).convert(any());
+
+		@SuppressWarnings("unchecked")
+		ArgumentCaptor<List<AuthenticationConverter>> authenticationConvertersCaptor = ArgumentCaptor.forClass(List.class);
+		verify(authenticationConvertersConsumer).accept(authenticationConvertersCaptor.capture());
+		List<AuthenticationConverter> authenticationConverters = authenticationConvertersCaptor.getValue();
+		assertThat(authenticationConverters).allMatch((converter) ->
+				converter == authenticationConverter ||
+						converter instanceof OAuth2TokenIntrospectionAuthenticationConverter);
+
 		verify(authenticationProvider).authenticate(eq(tokenIntrospectionAuthentication));
+
+		@SuppressWarnings("unchecked")
+		ArgumentCaptor<List<AuthenticationProvider>> authenticationProvidersCaptor = ArgumentCaptor.forClass(List.class);
+		verify(authenticationProvidersConsumer).accept(authenticationProvidersCaptor.capture());
+		List<AuthenticationProvider> authenticationProviders = authenticationProvidersCaptor.getValue();
+		assertThat(authenticationProviders).allMatch((provider) ->
+				provider == authenticationProvider ||
+						provider instanceof OAuth2TokenIntrospectionAuthenticationProvider);
+
 		verify(authenticationSuccessHandler).onAuthenticationSuccess(any(), any(), eq(tokenIntrospectionAuthentication));
 	}
 
@@ -440,8 +465,8 @@ public class OAuth2TokenIntrospectionTests {
 		}
 
 		@Bean
-		ProviderSettings providerSettings() {
-			return providerSettings;
+		AuthorizationServerSettings authorizationServerSettings() {
+			return authorizationServerSettings;
 		}
 
 		@Bean
@@ -486,7 +511,9 @@ public class OAuth2TokenIntrospectionTests {
 					.tokenIntrospectionEndpoint(tokenIntrospectionEndpoint ->
 							tokenIntrospectionEndpoint
 									.introspectionRequestConverter(authenticationConverter)
+									.introspectionRequestConverters(authenticationConvertersConsumer)
 									.authenticationProvider(authenticationProvider)
+									.authenticationProviders(authenticationProvidersConsumer)
 									.introspectionResponseHandler(authenticationSuccessHandler)
 									.errorResponseHandler(authenticationFailureHandler));
 			RequestMatcher endpointsMatcher = authorizationServerConfigurer.getEndpointsMatcher();

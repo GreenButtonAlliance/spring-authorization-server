@@ -90,6 +90,8 @@ import org.springframework.security.oauth2.server.authorization.TestOAuth2Author
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationConsentAuthenticationContext;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationConsentAuthenticationProvider;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationConsentAuthenticationToken;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository.RegisteredClientParametersMapper;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
@@ -97,8 +99,8 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 import org.springframework.security.oauth2.server.authorization.client.TestRegisteredClients;
 import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
 import org.springframework.security.oauth2.server.authorization.jackson2.TestingAuthenticationTokenMixin;
+import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
-import org.springframework.security.oauth2.server.authorization.settings.ProviderSettings;
 import org.springframework.security.oauth2.server.authorization.test.SpringTestRule;
 import org.springframework.security.oauth2.server.authorization.token.DelegatingOAuth2TokenGenerator;
 import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
@@ -107,6 +109,8 @@ import org.springframework.security.oauth2.server.authorization.token.OAuth2Refr
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenContext;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenGenerator;
+import org.springframework.security.oauth2.server.authorization.web.authentication.OAuth2AuthorizationCodeRequestAuthenticationConverter;
+import org.springframework.security.oauth2.server.authorization.web.authentication.OAuth2AuthorizationConsentAuthenticationConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationConverter;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
@@ -161,11 +165,13 @@ public class OAuth2AuthorizationCodeGrantTests {
 	private static EmbeddedDatabase db;
 	private static JWKSource<SecurityContext> jwkSource;
 	private static NimbusJwtEncoder jwtEncoder;
-	private static ProviderSettings providerSettings;
+	private static AuthorizationServerSettings authorizationServerSettings;
 	private static HttpMessageConverter<OAuth2AccessTokenResponse> accessTokenHttpResponseConverter =
 			new OAuth2AccessTokenResponseHttpMessageConverter();
 	private static AuthenticationConverter authorizationRequestConverter;
+	private static Consumer<List<AuthenticationConverter>> authorizationRequestConvertersConsumer;
 	private static AuthenticationProvider authorizationRequestAuthenticationProvider;
+	private static Consumer<List<AuthenticationProvider>> authorizationRequestAuthenticationProvidersConsumer;
 	private static AuthenticationSuccessHandler authorizationResponseHandler;
 	private static AuthenticationFailureHandler authorizationErrorResponseHandler;
 	private static SecurityContextRepository securityContextRepository;
@@ -197,12 +203,14 @@ public class OAuth2AuthorizationCodeGrantTests {
 		JWKSet jwkSet = new JWKSet(TestJwks.DEFAULT_RSA_JWK);
 		jwkSource = (jwkSelector, securityContext) -> jwkSelector.select(jwkSet);
 		jwtEncoder = new NimbusJwtEncoder(jwkSource);
-		providerSettings = ProviderSettings.builder()
+		authorizationServerSettings = AuthorizationServerSettings.builder()
 				.authorizationEndpoint("/test/authorize")
 				.tokenEndpoint("/test/token")
 				.build();
 		authorizationRequestConverter = mock(AuthenticationConverter.class);
+		authorizationRequestConvertersConsumer = mock(Consumer.class);
 		authorizationRequestAuthenticationProvider = mock(AuthenticationProvider.class);
+		authorizationRequestAuthenticationProvidersConsumer = mock(Consumer.class);
 		authorizationResponseHandler = mock(AuthenticationSuccessHandler.class);
 		authorizationErrorResponseHandler = mock(AuthenticationFailureHandler.class);
 		securityContextRepository = spy(new HttpSessionSecurityContextRepository());
@@ -269,7 +277,7 @@ public class OAuth2AuthorizationCodeGrantTests {
 	public void requestWhenAuthorizationRequestCustomEndpointThenRedirectToClient() throws Exception {
 		this.spring.register(AuthorizationServerConfigurationCustomEndpoints.class).autowire();
 
-		assertAuthorizationRequestRedirectsToClient(providerSettings.getAuthorizationEndpoint());
+		assertAuthorizationRequestRedirectsToClient(authorizationServerSettings.getAuthorizationEndpoint());
 	}
 
 	private void assertAuthorizationRequestRedirectsToClient(String authorizationEndpointUri) throws Exception {
@@ -326,7 +334,7 @@ public class OAuth2AuthorizationCodeGrantTests {
 		this.authorizationService.save(authorization);
 
 		assertTokenRequestReturnsAccessTokenResponse(
-				registeredClient, authorization, providerSettings.getTokenEndpoint());
+				registeredClient, authorization, authorizationServerSettings.getTokenEndpoint());
 	}
 
 	private OAuth2AccessTokenResponse assertTokenRequestReturnsAccessTokenResponse(RegisteredClient registeredClient,
@@ -621,13 +629,9 @@ public class OAuth2AuthorizationCodeGrantTests {
 		OAuth2AuthorizationCode authorizationCode = new OAuth2AuthorizationCode(
 				"code", Instant.now(), Instant.now().plus(5, ChronoUnit.MINUTES));
 		OAuth2AuthorizationCodeRequestAuthenticationToken authorizationCodeRequestAuthenticationResult =
-				OAuth2AuthorizationCodeRequestAuthenticationToken.with(registeredClient.getClientId(), principal)
-						.authorizationUri("https://provider.com/oauth2/authorize")
-						.redirectUri(registeredClient.getRedirectUris().iterator().next())
-						.scopes(registeredClient.getScopes())
-						.state("state")
-						.authorizationCode(authorizationCode)
-						.build();
+				new OAuth2AuthorizationCodeRequestAuthenticationToken(
+						"https://provider.com/oauth2/authorize", registeredClient.getClientId(), principal, authorizationCode,
+						registeredClient.getRedirectUris().iterator().next(), "state", registeredClient.getScopes());
 		when(authorizationRequestConverter.convert(any())).thenReturn(authorizationCodeRequestAuthenticationResult);
 		when(authorizationRequestAuthenticationProvider.supports(eq(OAuth2AuthorizationCodeRequestAuthenticationToken.class))).thenReturn(true);
 		when(authorizationRequestAuthenticationProvider.authenticate(any())).thenReturn(authorizationCodeRequestAuthenticationResult);
@@ -638,7 +642,27 @@ public class OAuth2AuthorizationCodeGrantTests {
 				.andExpect(status().isOk());
 
 		verify(authorizationRequestConverter).convert(any());
+
+		@SuppressWarnings("unchecked")
+		ArgumentCaptor<List<AuthenticationConverter>> authenticationConvertersCaptor = ArgumentCaptor.forClass(List.class);
+		verify(authorizationRequestConvertersConsumer).accept(authenticationConvertersCaptor.capture());
+		List<AuthenticationConverter> authenticationConverters = authenticationConvertersCaptor.getValue();
+		assertThat(authenticationConverters).allMatch((converter) ->
+				converter == authorizationRequestConverter ||
+						converter instanceof OAuth2AuthorizationCodeRequestAuthenticationConverter ||
+						converter instanceof OAuth2AuthorizationConsentAuthenticationConverter);
+
 		verify(authorizationRequestAuthenticationProvider).authenticate(eq(authorizationCodeRequestAuthenticationResult));
+
+		@SuppressWarnings("unchecked")
+		ArgumentCaptor<List<AuthenticationProvider>> authenticationProvidersCaptor = ArgumentCaptor.forClass(List.class);
+		verify(authorizationRequestAuthenticationProvidersConsumer).accept(authenticationProvidersCaptor.capture());
+		List<AuthenticationProvider> authenticationProviders = authenticationProvidersCaptor.getValue();
+		assertThat(authenticationProviders).allMatch((provider) ->
+				provider == authorizationRequestAuthenticationProvider ||
+						provider instanceof OAuth2AuthorizationCodeRequestAuthenticationProvider ||
+						provider instanceof OAuth2AuthorizationConsentAuthenticationProvider);
+
 		verify(authorizationResponseHandler).onAuthenticationSuccess(any(), any(), eq(authorizationCodeRequestAuthenticationResult));
 	}
 
@@ -863,8 +887,8 @@ public class OAuth2AuthorizationCodeGrantTests {
 	static class AuthorizationServerConfigurationCustomEndpoints extends AuthorizationServerConfiguration {
 
 		@Bean
-		ProviderSettings providerSettings() {
-			return providerSettings;
+		AuthorizationServerSettings authorizationServerSettings() {
+			return authorizationServerSettings;
 		}
 	}
 
@@ -910,7 +934,7 @@ public class OAuth2AuthorizationCodeGrantTests {
 					new OAuth2AuthorizationServerConfigurer();
 			authorizationServerConfigurer
 					.authorizationEndpoint(authorizationEndpoint ->
-							authorizationEndpoint.authenticationProvider(createProvider()));
+							authorizationEndpoint.authenticationProviders(configureAuthenticationProviders()));
 			RequestMatcher endpointsMatcher = authorizationServerConfigurer.getEndpointsMatcher();
 
 			http
@@ -942,15 +966,14 @@ public class OAuth2AuthorizationCodeGrantTests {
 			};
 		}
 
-		private AuthenticationProvider createProvider() {
-			OAuth2AuthorizationCodeRequestAuthenticationProvider authorizationCodeRequestAuthenticationProvider =
-					new OAuth2AuthorizationCodeRequestAuthenticationProvider(
-							this.registeredClientRepository,
-							this.authorizationService,
-							this.authorizationConsentService);
-			authorizationCodeRequestAuthenticationProvider.setAuthorizationConsentCustomizer(new AuthorizationConsentCustomizer());
-
-			return authorizationCodeRequestAuthenticationProvider;
+		private Consumer<List<AuthenticationProvider>> configureAuthenticationProviders() {
+			return (authenticationProviders) ->
+				authenticationProviders.forEach((authenticationProvider) -> {
+					if (authenticationProvider instanceof OAuth2AuthorizationConsentAuthenticationProvider) {
+						((OAuth2AuthorizationConsentAuthenticationProvider) authenticationProvider)
+								.setAuthorizationConsentCustomizer(new AuthorizationConsentCustomizer());
+					}
+				});
 		}
 
 		static class AuthorizationConsentCustomizer implements Consumer<OAuth2AuthorizationConsentAuthenticationContext> {
@@ -959,10 +982,10 @@ public class OAuth2AuthorizationCodeGrantTests {
 			public void accept(OAuth2AuthorizationConsentAuthenticationContext authorizationConsentAuthenticationContext) {
 				OAuth2AuthorizationConsent.Builder authorizationConsentBuilder =
 						authorizationConsentAuthenticationContext.getAuthorizationConsent();
-				OAuth2AuthorizationCodeRequestAuthenticationToken authorizationCodeRequestAuthentication =
+				OAuth2AuthorizationConsentAuthenticationToken authorizationConsentAuthentication =
 						authorizationConsentAuthenticationContext.getAuthentication();
 				Map<String, Object> additionalParameters =
-						authorizationCodeRequestAuthentication.getAdditionalParameters();
+						authorizationConsentAuthentication.getAdditionalParameters();
 				RegisteredClient registeredClient = authorizationConsentAuthenticationContext.getRegisteredClient();
 				ClientSettings clientSettings = registeredClient.getClientSettings();
 
@@ -998,7 +1021,9 @@ public class OAuth2AuthorizationCodeGrantTests {
 					.authorizationEndpoint(authorizationEndpoint ->
 							authorizationEndpoint
 									.authorizationRequestConverter(authorizationRequestConverter)
+									.authorizationRequestConverters(authorizationRequestConvertersConsumer)
 									.authenticationProvider(authorizationRequestAuthenticationProvider)
+									.authenticationProviders(authorizationRequestAuthenticationProvidersConsumer)
 									.authorizationResponseHandler(authorizationResponseHandler)
 									.errorResponseHandler(authorizationErrorResponseHandler));
 			RequestMatcher endpointsMatcher = authorizationServerConfigurer.getEndpointsMatcher();

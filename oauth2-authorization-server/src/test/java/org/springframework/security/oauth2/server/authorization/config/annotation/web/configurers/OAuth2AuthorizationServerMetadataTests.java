@@ -15,6 +15,8 @@
  */
 package org.springframework.security.oauth2.server.authorization.config.annotation.web.configurers;
 
+import java.util.function.Consumer;
+
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
@@ -26,23 +28,30 @@ import org.junit.Test;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabase;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.oauth2.jose.TestJwks;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationServerMetadata;
+import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationServerMetadataClaimNames;
 import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.TestRegisteredClients;
 import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
-import org.springframework.security.oauth2.server.authorization.settings.ProviderSettings;
+import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.security.oauth2.server.authorization.test.SpringTestRule;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.hamcrest.CoreMatchers.hasItems;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -92,13 +101,34 @@ public class OAuth2AuthorizationServerMetadataTests {
 	}
 
 	@Test
-	public void requestWhenAuthorizationServerMetadataRequestAndIssuerSetThenReturnMetadataResponse() throws Exception {
+	public void requestWhenAuthorizationServerMetadataRequestAndIssuerSetThenUsed() throws Exception {
 		this.spring.register(AuthorizationServerConfiguration.class).autowire();
 
 		this.mvc.perform(get(DEFAULT_OAUTH2_AUTHORIZATION_SERVER_METADATA_ENDPOINT_URI))
 				.andExpect(status().is2xxSuccessful())
 				.andExpect(jsonPath("issuer").value(issuerUrl))
 				.andReturn();
+	}
+
+	@Test
+	public void requestWhenAuthorizationServerMetadataRequestAndIssuerNotSetThenResolveFromRequest() throws Exception {
+		this.spring.register(AuthorizationServerConfigurationWithIssuerNotSet.class).autowire();
+
+		this.mvc.perform(get(DEFAULT_OAUTH2_AUTHORIZATION_SERVER_METADATA_ENDPOINT_URI))
+				.andExpect(status().is2xxSuccessful())
+				.andExpect(jsonPath("issuer").value("http://localhost"))
+				.andReturn();
+	}
+
+	// gh-616
+	@Test
+	public void requestWhenAuthorizationServerMetadataRequestAndMetadataCustomizerSetThenReturnCustomMetadataResponse() throws Exception {
+		this.spring.register(AuthorizationServerConfigurationWithMetadataCustomizer.class).autowire();
+
+		this.mvc.perform(get(DEFAULT_OAUTH2_AUTHORIZATION_SERVER_METADATA_ENDPOINT_URI))
+				.andExpect(status().is2xxSuccessful())
+				.andExpect(jsonPath(OAuth2AuthorizationServerMetadataClaimNames.SCOPES_SUPPORTED,
+						hasItems("scope1", "scope2")));
 	}
 
 	@EnableWebSecurity
@@ -124,8 +154,54 @@ public class OAuth2AuthorizationServerMetadataTests {
 		}
 
 		@Bean
-		ProviderSettings providerSettings() {
-			return ProviderSettings.builder().issuer(issuerUrl).build();
+		AuthorizationServerSettings authorizationServerSettings() {
+			return AuthorizationServerSettings.builder().issuer(issuerUrl).build();
+		}
+	}
+
+	@Configuration
+	@EnableWebSecurity
+	static class AuthorizationServerConfigurationWithMetadataCustomizer extends AuthorizationServerConfiguration {
+
+		// @formatter:off
+		@Bean
+		public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
+			OAuth2AuthorizationServerConfigurer authorizationServerConfigurer =
+					new OAuth2AuthorizationServerConfigurer();
+			http.apply(authorizationServerConfigurer);
+
+			authorizationServerConfigurer
+					.authorizationServerMetadataEndpoint(authorizationServerMetadataEndpoint ->
+							authorizationServerMetadataEndpoint
+									.authorizationServerMetadataCustomizer(authorizationServerMetadataCustomizer()));
+
+			RequestMatcher endpointsMatcher = authorizationServerConfigurer.getEndpointsMatcher();
+
+			http
+					.requestMatcher(endpointsMatcher)
+					.authorizeRequests(authorizeRequests ->
+							authorizeRequests.anyRequest().authenticated()
+					)
+					.csrf(csrf -> csrf.ignoringRequestMatchers(endpointsMatcher));
+
+			return http.build();
+		}
+		// @formatter:on
+
+		private Consumer<OAuth2AuthorizationServerMetadata.Builder> authorizationServerMetadataCustomizer() {
+			return (authorizationServerMetadata) ->
+					authorizationServerMetadata.scope("scope1").scope("scope2");
+		}
+
+	}
+
+	@EnableWebSecurity
+	@Import(OAuth2AuthorizationServerConfiguration.class)
+	static class AuthorizationServerConfigurationWithIssuerNotSet extends AuthorizationServerConfiguration {
+
+		@Bean
+		AuthorizationServerSettings authorizationServerSettings() {
+			return AuthorizationServerSettings.builder().build();
 		}
 	}
 

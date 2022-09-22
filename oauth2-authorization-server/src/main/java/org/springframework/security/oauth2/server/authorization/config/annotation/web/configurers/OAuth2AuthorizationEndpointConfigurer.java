@@ -17,6 +17,7 @@ package org.springframework.security.oauth2.server.authorization.config.annotati
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -30,8 +31,13 @@ import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationResp
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationException;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationProvider;
 import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationCodeRequestAuthenticationToken;
-import org.springframework.security.oauth2.server.authorization.settings.ProviderSettings;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationConsentAuthenticationProvider;
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2AuthorizationConsentAuthenticationToken;
+import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.security.oauth2.server.authorization.web.OAuth2AuthorizationEndpointFilter;
+import org.springframework.security.oauth2.server.authorization.web.authentication.DelegatingAuthenticationConverter;
+import org.springframework.security.oauth2.server.authorization.web.authentication.OAuth2AuthorizationCodeRequestAuthenticationConverter;
+import org.springframework.security.oauth2.server.authorization.web.authentication.OAuth2AuthorizationConsentAuthenticationConverter;
 import org.springframework.security.web.authentication.AuthenticationConverter;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
@@ -52,8 +58,10 @@ import org.springframework.util.StringUtils;
  */
 public final class OAuth2AuthorizationEndpointConfigurer extends AbstractOAuth2Configurer {
 	private RequestMatcher requestMatcher;
-	private AuthenticationConverter authorizationRequestConverter;
+	private final List<AuthenticationConverter> authorizationRequestConverters = new ArrayList<>();
+	private Consumer<List<AuthenticationConverter>> authorizationRequestConvertersConsumer = (authorizationRequestConverters) -> {};
 	private final List<AuthenticationProvider> authenticationProviders = new ArrayList<>();
+	private Consumer<List<AuthenticationProvider>> authenticationProvidersConsumer = (authenticationProviders) -> {};
 	private AuthenticationSuccessHandler authorizationResponseHandler;
 	private AuthenticationFailureHandler errorResponseHandler;
 	private String consentPage;
@@ -66,14 +74,32 @@ public final class OAuth2AuthorizationEndpointConfigurer extends AbstractOAuth2C
 	}
 
 	/**
-	 * Sets the {@link AuthenticationConverter} used when attempting to extract an Authorization Request (or Consent) from {@link HttpServletRequest}
-	 * to an instance of {@link OAuth2AuthorizationCodeRequestAuthenticationToken} used for authenticating the request.
+	 * Adds an {@link AuthenticationConverter} used when attempting to extract an Authorization Request (or Consent) from {@link HttpServletRequest}
+	 * to an instance of {@link OAuth2AuthorizationCodeRequestAuthenticationToken} or {@link OAuth2AuthorizationConsentAuthenticationToken}
+	 * used for authenticating the request.
 	 *
-	 * @param authorizationRequestConverter the {@link AuthenticationConverter} used when attempting to extract an Authorization Request (or Consent) from {@link HttpServletRequest}
+	 * @param authorizationRequestConverter an {@link AuthenticationConverter} used when attempting to extract an Authorization Request (or Consent) from {@link HttpServletRequest}
 	 * @return the {@link OAuth2AuthorizationEndpointConfigurer} for further configuration
 	 */
 	public OAuth2AuthorizationEndpointConfigurer authorizationRequestConverter(AuthenticationConverter authorizationRequestConverter) {
-		this.authorizationRequestConverter = authorizationRequestConverter;
+		Assert.notNull(authorizationRequestConverter, "authorizationRequestConverter cannot be null");
+		this.authorizationRequestConverters.add(authorizationRequestConverter);
+		return this;
+	}
+
+	/**
+	 * Sets the {@code Consumer} providing access to the {@code List} of default
+	 * and (optionally) added {@link #authorizationRequestConverter(AuthenticationConverter) AuthenticationConverter}'s
+	 * allowing the ability to add, remove, or customize a specific {@link AuthenticationConverter}.
+	 *
+	 * @param authorizationRequestConvertersConsumer the {@code Consumer} providing access to the {@code List} of default and (optionally) added {@link AuthenticationConverter}'s
+	 * @return the {@link OAuth2AuthorizationEndpointConfigurer} for further configuration
+	 * @since 0.4.0
+	 */
+	public OAuth2AuthorizationEndpointConfigurer authorizationRequestConverters(
+			Consumer<List<AuthenticationConverter>> authorizationRequestConvertersConsumer) {
+		Assert.notNull(authorizationRequestConvertersConsumer, "authorizationRequestConvertersConsumer cannot be null");
+		this.authorizationRequestConvertersConsumer = authorizationRequestConvertersConsumer;
 		return this;
 	}
 
@@ -86,6 +112,22 @@ public final class OAuth2AuthorizationEndpointConfigurer extends AbstractOAuth2C
 	public OAuth2AuthorizationEndpointConfigurer authenticationProvider(AuthenticationProvider authenticationProvider) {
 		Assert.notNull(authenticationProvider, "authenticationProvider cannot be null");
 		this.authenticationProviders.add(authenticationProvider);
+		return this;
+	}
+
+	/**
+	 * Sets the {@code Consumer} providing access to the {@code List} of default
+	 * and (optionally) added {@link #authenticationProvider(AuthenticationProvider) AuthenticationProvider}'s
+	 * allowing the ability to add, remove, or customize a specific {@link AuthenticationProvider}.
+	 *
+	 * @param authenticationProvidersConsumer the {@code Consumer} providing access to the {@code List} of default and (optionally) added {@link AuthenticationProvider}'s
+	 * @return the {@link OAuth2AuthorizationEndpointConfigurer} for further configuration
+	 * @since 0.4.0
+	 */
+	public OAuth2AuthorizationEndpointConfigurer authenticationProviders(
+			Consumer<List<AuthenticationProvider>> authenticationProvidersConsumer) {
+		Assert.notNull(authenticationProvidersConsumer, "authenticationProvidersConsumer cannot be null");
+		this.authenticationProvidersConsumer = authenticationProvidersConsumer;
 		return this;
 	}
 
@@ -132,7 +174,7 @@ public final class OAuth2AuthorizationEndpointConfigurer extends AbstractOAuth2C
 	 *
 	 * <ul>
 	 * <li>It must be an HTTP POST</li>
-	 * <li>It must be submitted to {@link ProviderSettings#getAuthorizationEndpoint()} ()}</li>
+	 * <li>It must be submitted to {@link AuthorizationServerSettings#getAuthorizationEndpoint()}</li>
 	 * <li>It must include the received {@code client_id} as an HTTP parameter</li>
 	 * <li>It must include the received {@code state} as an HTTP parameter</li>
 	 * <li>It must include the list of {@code scope}s the {@code Resource Owner}
@@ -149,19 +191,20 @@ public final class OAuth2AuthorizationEndpointConfigurer extends AbstractOAuth2C
 
 	@Override
 	void init(HttpSecurity httpSecurity) {
-		ProviderSettings providerSettings = OAuth2ConfigurerUtils.getProviderSettings(httpSecurity);
+		AuthorizationServerSettings authorizationServerSettings = OAuth2ConfigurerUtils.getAuthorizationServerSettings(httpSecurity);
 		this.requestMatcher = new OrRequestMatcher(
 				new AntPathRequestMatcher(
-						providerSettings.getAuthorizationEndpoint(),
+						authorizationServerSettings.getAuthorizationEndpoint(),
 						HttpMethod.GET.name()),
 				new AntPathRequestMatcher(
-						providerSettings.getAuthorizationEndpoint(),
+						authorizationServerSettings.getAuthorizationEndpoint(),
 						HttpMethod.POST.name()));
 
-		List<AuthenticationProvider> authenticationProviders =
-				!this.authenticationProviders.isEmpty() ?
-						this.authenticationProviders :
-						createDefaultAuthenticationProviders(httpSecurity);
+		List<AuthenticationProvider> authenticationProviders = createDefaultAuthenticationProviders(httpSecurity);
+		if (!this.authenticationProviders.isEmpty()) {
+			authenticationProviders.addAll(0, this.authenticationProviders);
+		}
+		this.authenticationProvidersConsumer.accept(authenticationProviders);
 		authenticationProviders.forEach(authenticationProvider ->
 				httpSecurity.authenticationProvider(postProcess(authenticationProvider)));
 	}
@@ -169,15 +212,19 @@ public final class OAuth2AuthorizationEndpointConfigurer extends AbstractOAuth2C
 	@Override
 	void configure(HttpSecurity httpSecurity) {
 		AuthenticationManager authenticationManager = httpSecurity.getSharedObject(AuthenticationManager.class);
-		ProviderSettings providerSettings = OAuth2ConfigurerUtils.getProviderSettings(httpSecurity);
+		AuthorizationServerSettings authorizationServerSettings = OAuth2ConfigurerUtils.getAuthorizationServerSettings(httpSecurity);
 
 		OAuth2AuthorizationEndpointFilter authorizationEndpointFilter =
 				new OAuth2AuthorizationEndpointFilter(
 						authenticationManager,
-						providerSettings.getAuthorizationEndpoint());
-		if (this.authorizationRequestConverter != null) {
-			authorizationEndpointFilter.setAuthenticationConverter(this.authorizationRequestConverter);
+						authorizationServerSettings.getAuthorizationEndpoint());
+		List<AuthenticationConverter> authenticationConverters = createDefaultAuthenticationConverters();
+		if (!this.authorizationRequestConverters.isEmpty()) {
+			authenticationConverters.addAll(0, this.authorizationRequestConverters);
 		}
+		this.authorizationRequestConvertersConsumer.accept(authenticationConverters);
+		authorizationEndpointFilter.setAuthenticationConverter(
+				new DelegatingAuthenticationConverter(authenticationConverters));
 		if (this.authorizationResponseHandler != null) {
 			authorizationEndpointFilter.setAuthenticationSuccessHandler(this.authorizationResponseHandler);
 		}
@@ -195,7 +242,16 @@ public final class OAuth2AuthorizationEndpointConfigurer extends AbstractOAuth2C
 		return this.requestMatcher;
 	}
 
-	private List<AuthenticationProvider> createDefaultAuthenticationProviders(HttpSecurity httpSecurity) {
+	private static List<AuthenticationConverter> createDefaultAuthenticationConverters() {
+		List<AuthenticationConverter> authenticationConverters = new ArrayList<>();
+
+		authenticationConverters.add(new OAuth2AuthorizationCodeRequestAuthenticationConverter());
+		authenticationConverters.add(new OAuth2AuthorizationConsentAuthenticationConverter());
+
+		return authenticationConverters;
+	}
+
+	private static List<AuthenticationProvider> createDefaultAuthenticationProviders(HttpSecurity httpSecurity) {
 		List<AuthenticationProvider> authenticationProviders = new ArrayList<>();
 
 		OAuth2AuthorizationCodeRequestAuthenticationProvider authorizationCodeRequestAuthenticationProvider =
@@ -204,6 +260,13 @@ public final class OAuth2AuthorizationEndpointConfigurer extends AbstractOAuth2C
 						OAuth2ConfigurerUtils.getAuthorizationService(httpSecurity),
 						OAuth2ConfigurerUtils.getAuthorizationConsentService(httpSecurity));
 		authenticationProviders.add(authorizationCodeRequestAuthenticationProvider);
+
+		OAuth2AuthorizationConsentAuthenticationProvider authorizationConsentAuthenticationProvider =
+				new OAuth2AuthorizationConsentAuthenticationProvider(
+						OAuth2ConfigurerUtils.getRegisteredClientRepository(httpSecurity),
+						OAuth2ConfigurerUtils.getAuthorizationService(httpSecurity),
+						OAuth2ConfigurerUtils.getAuthorizationConsentService(httpSecurity));
+		authenticationProviders.add(authorizationConsentAuthenticationProvider);
 
 		return authenticationProviders;
 	}
