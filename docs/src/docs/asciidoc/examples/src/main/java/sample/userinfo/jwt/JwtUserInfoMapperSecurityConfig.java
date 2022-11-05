@@ -57,7 +57,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 
-@Configuration
+@Configuration(proxyBeanMethods = false)
 public class JwtUserInfoMapperSecurityConfig {
 
 	@Bean // <1>
@@ -83,8 +83,8 @@ public class JwtUserInfoMapperSecurityConfig {
 				)
 			);
 		http
-			.requestMatcher(endpointsMatcher)
-			.authorizeRequests((authorize) -> authorize
+			.securityMatcher(endpointsMatcher)
+			.authorizeHttpRequests((authorize) -> authorize
 				.anyRequest().authenticated()
 			)
 			.csrf(csrf -> csrf.ignoringRequestMatchers(endpointsMatcher))
