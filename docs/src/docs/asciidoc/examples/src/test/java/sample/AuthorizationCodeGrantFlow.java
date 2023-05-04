@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2022 the original author or authors.
+ * Copyright 2020-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -109,7 +109,7 @@ public class AuthorizationCodeGrantFlow {
 	 * Submit consent for the authorization request and obtain an authorization code.
 	 *
 	 * @param registeredClient The registered client
-	 * @param state The state paramter from the authorization request
+	 * @param state The state parameter from the authorization request
 	 * @return An authorization code
 	 */
 	public String submitConsent(RegisteredClient registeredClient, String state) throws Exception {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2022 the original author or authors.
+ * Copyright 2020-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,12 +27,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.keygen.Base64StringKeyGenerator;
 import org.springframework.security.crypto.keygen.StringKeyGenerator;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClaimAccessor;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
@@ -76,16 +81,19 @@ import org.springframework.util.StringUtils;
  * @see OAuth2TokenGenerator
  * @see OidcClientRegistrationAuthenticationToken
  * @see OidcClientConfigurationAuthenticationProvider
+ * @see PasswordEncoder
  * @see <a href="https://openid.net/specs/openid-connect-registration-1_0.html#ClientRegistration">3. Client Registration Endpoint</a>
  */
 public final class OidcClientRegistrationAuthenticationProvider implements AuthenticationProvider {
 	private static final String ERROR_URI = "https://openid.net/specs/openid-connect-registration-1_0.html#RegistrationError";
 	private static final String DEFAULT_CLIENT_REGISTRATION_AUTHORIZED_SCOPE = "client.create";
+	private final Log logger = LogFactory.getLog(getClass());
 	private final RegisteredClientRepository registeredClientRepository;
 	private final OAuth2AuthorizationService authorizationService;
 	private final OAuth2TokenGenerator<? extends OAuth2Token> tokenGenerator;
 	private final Converter<RegisteredClient, OidcClientRegistration> clientRegistrationConverter;
 	private Converter<OidcClientRegistration, RegisteredClient> registeredClientConverter;
+	private PasswordEncoder passwordEncoder;
 
 	/**
 	 * Constructs an {@code OidcClientRegistrationAuthenticationProvider} using the provided parameters.
@@ -105,6 +113,7 @@ public final class OidcClientRegistrationAuthenticationProvider implements Authe
 		this.tokenGenerator = tokenGenerator;
 		this.clientRegistrationConverter = new RegisteredClientOidcClientRegistrationConverter();
 		this.registeredClientConverter = new OidcClientRegistrationRegisteredClientConverter();
+		this.passwordEncoder = PasswordEncoderFactories.createDelegatingPasswordEncoder();
 	}
 
 	@Override
@@ -134,6 +143,10 @@ public final class OidcClientRegistrationAuthenticationProvider implements Authe
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_TOKEN);
 		}
 
+		if (this.logger.isTraceEnabled()) {
+			this.logger.trace("Retrieved authorization with initial access token");
+		}
+
 		OAuth2Authorization.Token<OAuth2AccessToken> authorizedAccessToken = authorization.getAccessToken();
 		if (!authorizedAccessToken.isActive()) {
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_TOKEN);
@@ -159,6 +172,18 @@ public final class OidcClientRegistrationAuthenticationProvider implements Authe
 		this.registeredClientConverter = registeredClientConverter;
 	}
 
+	/**
+	 * Sets the {@link PasswordEncoder} used to encode the {@link RegisteredClient#getClientSecret() client secret}.
+	 * If not set, the client secret will be encoded using {@link PasswordEncoderFactories#createDelegatingPasswordEncoder()}.
+	 *
+	 * @param passwordEncoder the {@link PasswordEncoder} used to encode the client secret
+	 * @since 1.1.0
+	 */
+	public void setPasswordEncoder(PasswordEncoder passwordEncoder) {
+		Assert.notNull(passwordEncoder, "passwordEncoder cannot be null");
+		this.passwordEncoder = passwordEncoder;
+	}
+
 	private OidcClientRegistrationAuthenticationToken registerClient(OidcClientRegistrationAuthenticationToken clientRegistrationAuthentication,
 			OAuth2Authorization authorization) {
 
@@ -166,12 +191,33 @@ public final class OidcClientRegistrationAuthenticationProvider implements Authe
 			throwInvalidClientRegistration(OAuth2ErrorCodes.INVALID_REDIRECT_URI, OidcClientMetadataClaimNames.REDIRECT_URIS);
 		}
 
+		if (!isValidRedirectUris(clientRegistrationAuthentication.getClientRegistration().getPostLogoutRedirectUris())) {
+			throwInvalidClientRegistration("invalid_client_metadata", OidcClientMetadataClaimNames.POST_LOGOUT_REDIRECT_URIS);
+		}
+
 		if (!isValidTokenEndpointAuthenticationMethod(clientRegistrationAuthentication.getClientRegistration())) {
 			throwInvalidClientRegistration("invalid_client_metadata", OidcClientMetadataClaimNames.TOKEN_ENDPOINT_AUTH_METHOD);
 		}
 
+		if (this.logger.isTraceEnabled()) {
+			this.logger.trace("Validated client registration request parameters");
+		}
+
 		RegisteredClient registeredClient = this.registeredClientConverter.convert(clientRegistrationAuthentication.getClientRegistration());
-		this.registeredClientRepository.save(registeredClient);
+
+		if (StringUtils.hasText(registeredClient.getClientSecret())) {
+			// Encode the client secret
+			RegisteredClient updatedRegisteredClient = RegisteredClient.from(registeredClient)
+					.clientSecret(this.passwordEncoder.encode(registeredClient.getClientSecret()))
+					.build();
+			this.registeredClientRepository.save(updatedRegisteredClient);
+		} else {
+			this.registeredClientRepository.save(registeredClient);
+		}
+
+		if (this.logger.isTraceEnabled()) {
+			this.logger.trace("Saved registered client");
+		}
 
 		OAuth2Authorization registeredClientAuthorization = registerAccessToken(registeredClient);
 
@@ -182,10 +228,18 @@ public final class OidcClientRegistrationAuthenticationProvider implements Authe
 		}
 		this.authorizationService.save(authorization);
 
+		if (this.logger.isTraceEnabled()) {
+			this.logger.trace("Saved authorization with invalidated initial access token");
+		}
+
 		Map<String, Object> clientRegistrationClaims = this.clientRegistrationConverter.convert(registeredClient).getClaims();
 		OidcClientRegistration clientRegistration = OidcClientRegistration.withClaims(clientRegistrationClaims)
 				.registrationAccessToken(registeredClientAuthorization.getAccessToken().getToken().getTokenValue())
 				.build();
+
+		if (this.logger.isTraceEnabled()) {
+			this.logger.trace("Authenticated client registration request");
+		}
 
 		return new OidcClientRegistrationAuthenticationToken(
 				(Authentication) clientRegistrationAuthentication.getPrincipal(), clientRegistration);
@@ -216,6 +270,11 @@ public final class OidcClientRegistrationAuthenticationProvider implements Authe
 					"The token generator failed to generate the registration access token.", ERROR_URI);
 			throw new OAuth2AuthenticationException(error);
 		}
+
+		if (this.logger.isTraceEnabled()) {
+			this.logger.trace("Generated registration access token");
+		}
+
 		OAuth2AccessToken accessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER,
 				registrationAccessToken.getTokenValue(), registrationAccessToken.getIssuedAt(),
 				registrationAccessToken.getExpiresAt(), tokenContext.getAuthorizedScopes());
@@ -236,6 +295,10 @@ public final class OidcClientRegistrationAuthenticationProvider implements Authe
 		OAuth2Authorization authorization = authorizationBuilder.build();
 
 		this.authorizationService.save(authorization);
+
+		if (this.logger.isTraceEnabled()) {
+			this.logger.trace("Saved authorization with registration access token");
+		}
 
 		return authorization;
 	}
@@ -337,6 +400,11 @@ public final class OidcClientRegistrationAuthenticationProvider implements Authe
 
 			builder.redirectUris(redirectUris ->
 					redirectUris.addAll(clientRegistration.getRedirectUris()));
+
+			if (!CollectionUtils.isEmpty(clientRegistration.getPostLogoutRedirectUris())) {
+				builder.postLogoutRedirectUris(postLogoutRedirectUris ->
+						postLogoutRedirectUris.addAll(clientRegistration.getPostLogoutRedirectUris()));
+			}
 
 			if (!CollectionUtils.isEmpty(clientRegistration.getGrantTypes())) {
 				builder.authorizationGrantTypes(authorizationGrantTypes ->

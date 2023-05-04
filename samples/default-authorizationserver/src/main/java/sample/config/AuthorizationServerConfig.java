@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2022 the original author or authors.
+ * Copyright 2020-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -54,6 +54,7 @@ import org.springframework.security.web.authentication.LoginUrlAuthenticationEnt
 
 /**
  * @author Joe Grandja
+ * @author Dmitriy Dubson
  * @since 0.0.1
  */
 @Configuration(proxyBeanMethods = false)
@@ -88,6 +89,7 @@ public class AuthorizationServerConfig {
 				.authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
 				.redirectUri("http://127.0.0.1:8080/login/oauth2/code/messaging-client-oidc")
 				.redirectUri("http://127.0.0.1:8080/authorized")
+				.postLogoutRedirectUri("http://127.0.0.1:8080/logged-out")
 				.scope(OidcScopes.OPENID)
 				.scope(OidcScopes.PROFILE)
 				.scope("message.read")
@@ -127,7 +129,7 @@ public class AuthorizationServerConfig {
 
 	@Bean
 	public AuthorizationServerSettings authorizationServerSettings() {
-		return AuthorizationServerSettings.builder().issuer("http://localhost:9000").build();
+		return AuthorizationServerSettings.builder().build();
 	}
 
 	@Bean
