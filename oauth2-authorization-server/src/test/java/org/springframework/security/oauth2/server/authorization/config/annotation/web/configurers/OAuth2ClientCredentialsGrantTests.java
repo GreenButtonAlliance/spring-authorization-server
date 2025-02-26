@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2024 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 import com.nimbusds.jose.jwk.JWKSet;
@@ -62,6 +64,12 @@ import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.jose.TestJwks;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.authentication.ClientSecretAuthenticationProvider;
@@ -104,7 +112,6 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationConverter;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
-import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
@@ -138,6 +145,8 @@ public class OAuth2ClientCredentialsGrantTests {
 
 	private static OAuth2TokenCustomizer<JwtEncodingContext> jwtCustomizer;
 
+	private static NimbusJwtEncoder dPoPProofJwtEncoder;
+
 	private static AuthenticationConverter authenticationConverter;
 
 	private static Consumer<List<AuthenticationConverter>> authenticationConvertersConsumer;
@@ -166,6 +175,9 @@ public class OAuth2ClientCredentialsGrantTests {
 		JWKSet jwkSet = new JWKSet(TestJwks.DEFAULT_RSA_JWK);
 		jwkSource = (jwkSelector, securityContext) -> jwkSelector.select(jwkSet);
 		jwtCustomizer = mock(OAuth2TokenCustomizer.class);
+		JWKSet clientJwkSet = new JWKSet(TestJwks.DEFAULT_EC_JWK);
+		JWKSource<SecurityContext> clientJwkSource = (jwkSelector, securityContext) -> jwkSelector.select(clientJwkSet);
+		dPoPProofJwtEncoder = new NimbusJwtEncoder(clientJwkSource);
 		authenticationConverter = mock(AuthenticationConverter.class);
 		authenticationConvertersConsumer = mock(Consumer.class);
 		authenticationProvider = mock(AuthenticationProvider.class);
@@ -462,6 +474,47 @@ public class OAuth2ClientCredentialsGrantTests {
 		assertThat(jwtEncodingContext.getAuthorizationServerContext().getIssuer()).isEqualTo(issuer);
 	}
 
+	@Test
+	public void requestWhenTokenRequestWithDPoPProofThenReturnDPoPBoundAccessToken() throws Exception {
+		this.spring.register(AuthorizationServerConfiguration.class).autowire();
+
+		RegisteredClient registeredClient = TestRegisteredClients.registeredClient2().build();
+		this.registeredClientRepository.save(registeredClient);
+
+		String tokenEndpointUri = "http://localhost" + DEFAULT_TOKEN_ENDPOINT_URI;
+		String dPoPProof = generateDPoPProof(tokenEndpointUri);
+
+		this.mvc
+			.perform(post(DEFAULT_TOKEN_ENDPOINT_URI)
+				.param(OAuth2ParameterNames.GRANT_TYPE, AuthorizationGrantType.CLIENT_CREDENTIALS.getValue())
+				.param(OAuth2ParameterNames.SCOPE, "scope1 scope2")
+				.header(HttpHeaders.AUTHORIZATION,
+						"Basic " + encodeBasicAuth(registeredClient.getClientId(), registeredClient.getClientSecret()))
+				.header(OAuth2AccessToken.TokenType.DPOP.getValue(), dPoPProof))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.token_type").value(OAuth2AccessToken.TokenType.DPOP.getValue()));
+	}
+
+	private static String generateDPoPProof(String tokenEndpointUri) {
+		// @formatter:off
+		Map<String, Object> publicJwk = TestJwks.DEFAULT_EC_JWK
+				.toPublicJWK()
+				.toJSONObject();
+		JwsHeader jwsHeader = JwsHeader.with(SignatureAlgorithm.ES256)
+				.type("dpop+jwt")
+				.jwk(publicJwk)
+				.build();
+		JwtClaimsSet claims = JwtClaimsSet.builder()
+				.issuedAt(Instant.now())
+				.claim("htm", "POST")
+				.claim("htu", tokenEndpointUri)
+				.id(UUID.randomUUID().toString())
+				.build();
+		// @formatter:on
+		Jwt jwt = dPoPProofJwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, claims));
+		return jwt.getTokenValue();
+	}
+
 	private static String encodeBasicAuth(String clientId, String secret) throws Exception {
 		clientId = URLEncoder.encode(clientId, StandardCharsets.UTF_8.name());
 		secret = URLEncoder.encode(secret, StandardCharsets.UTF_8.name());
@@ -541,25 +594,23 @@ public class OAuth2ClientCredentialsGrantTests {
 		@Bean
 		SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
 			OAuth2AuthorizationServerConfigurer authorizationServerConfigurer =
-					new OAuth2AuthorizationServerConfigurer();
-			authorizationServerConfigurer
-					.tokenEndpoint((tokenEndpoint) ->
-							tokenEndpoint
-									.accessTokenRequestConverter(authenticationConverter)
-									.accessTokenRequestConverters(authenticationConvertersConsumer)
-									.authenticationProvider(authenticationProvider)
-									.authenticationProviders(authenticationProvidersConsumer)
-									.accessTokenResponseHandler(authenticationSuccessHandler)
-									.errorResponseHandler(authenticationFailureHandler));
-			RequestMatcher endpointsMatcher = authorizationServerConfigurer.getEndpointsMatcher();
-
+					OAuth2AuthorizationServerConfigurer.authorizationServer();
 			http
-					.securityMatcher(endpointsMatcher)
+					.securityMatcher(authorizationServerConfigurer.getEndpointsMatcher())
+					.with(authorizationServerConfigurer, (authorizationServer) ->
+							authorizationServer
+									.tokenEndpoint((tokenEndpoint) ->
+											tokenEndpoint
+													.accessTokenRequestConverter(authenticationConverter)
+													.accessTokenRequestConverters(authenticationConvertersConsumer)
+													.authenticationProvider(authenticationProvider)
+													.authenticationProviders(authenticationProvidersConsumer)
+													.accessTokenResponseHandler(authenticationSuccessHandler)
+													.errorResponseHandler(authenticationFailureHandler))
+					)
 					.authorizeHttpRequests((authorize) ->
 							authorize.anyRequest().authenticated()
-					)
-					.csrf((csrf) -> csrf.ignoringRequestMatchers(endpointsMatcher))
-					.apply(authorizationServerConfigurer);
+					);
 			return http.build();
 		}
 		// @formatter:on
@@ -587,25 +638,23 @@ public class OAuth2ClientCredentialsGrantTests {
 			authenticationSuccessHandler = spy(authenticationSuccessHandler());
 
 			OAuth2AuthorizationServerConfigurer authorizationServerConfigurer =
-					new OAuth2AuthorizationServerConfigurer();
-			authorizationServerConfigurer
-					.clientAuthentication((clientAuthentication) ->
-							clientAuthentication
-									.authenticationConverter(authenticationConverter)
-									.authenticationConverters(authenticationConvertersConsumer)
-									.authenticationProvider(authenticationProvider)
-									.authenticationProviders(authenticationProvidersConsumer)
-									.authenticationSuccessHandler(authenticationSuccessHandler)
-									.errorResponseHandler(authenticationFailureHandler));
-			RequestMatcher endpointsMatcher = authorizationServerConfigurer.getEndpointsMatcher();
-
+					OAuth2AuthorizationServerConfigurer.authorizationServer();
 			http
-					.securityMatcher(endpointsMatcher)
+					.securityMatcher(authorizationServerConfigurer.getEndpointsMatcher())
+					.with(authorizationServerConfigurer, (authorizationServer) ->
+							authorizationServer
+									.clientAuthentication((clientAuthentication) ->
+											clientAuthentication
+													.authenticationConverter(authenticationConverter)
+													.authenticationConverters(authenticationConvertersConsumer)
+													.authenticationProvider(authenticationProvider)
+													.authenticationProviders(authenticationProvidersConsumer)
+													.authenticationSuccessHandler(authenticationSuccessHandler)
+													.errorResponseHandler(authenticationFailureHandler))
+					)
 					.authorizeHttpRequests((authorize) ->
 							authorize.anyRequest().authenticated()
-					)
-					.csrf((csrf) -> csrf.ignoringRequestMatchers(endpointsMatcher))
-					.apply(authorizationServerConfigurer);
+					);
 			return http.build();
 		}
 		// @formatter:on

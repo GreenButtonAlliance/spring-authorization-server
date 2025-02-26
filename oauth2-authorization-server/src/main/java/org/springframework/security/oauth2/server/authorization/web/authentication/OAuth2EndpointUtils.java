@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2023 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,13 +17,16 @@ package org.springframework.security.oauth2.server.authorization.web.authenticat
 
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 
 import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.security.oauth2.core.OAuth2AccessToken;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.core.endpoint.PkceParameterNames;
 import org.springframework.util.Assert;
@@ -103,6 +106,22 @@ final class OAuth2EndpointUtils {
 				&& request.getParameter(PkceParameterNames.CODE_VERIFIER) != null;
 	}
 
+	static void validateAndAddDPoPParametersIfAvailable(HttpServletRequest request,
+			Map<String, Object> additionalParameters) {
+		final String dPoPProofHeaderName = OAuth2AccessToken.TokenType.DPOP.getValue();
+		String dPoPProof = request.getHeader(dPoPProofHeaderName);
+		if (StringUtils.hasText(dPoPProof)) {
+			if (Collections.list(request.getHeaders(dPoPProofHeaderName)).size() != 1) {
+				throwError(OAuth2ErrorCodes.INVALID_REQUEST, dPoPProofHeaderName, ACCESS_TOKEN_REQUEST_ERROR_URI);
+			}
+			else {
+				additionalParameters.put("dpop_proof", dPoPProof);
+				additionalParameters.put("dpop_method", request.getMethod());
+				additionalParameters.put("dpop_target_uri", request.getRequestURL().toString());
+			}
+		}
+	}
+
 	static void throwError(String errorCode, String parameterName, String errorUri) {
 		OAuth2Error error = new OAuth2Error(errorCode, "OAuth 2.0 Parameter: " + parameterName, errorUri);
 		throw new OAuth2AuthenticationException(error);
@@ -110,14 +129,14 @@ final class OAuth2EndpointUtils {
 
 	static String normalizeUserCode(String userCode) {
 		Assert.hasText(userCode, "userCode cannot be empty");
-		StringBuilder sb = new StringBuilder(userCode.toUpperCase().replaceAll("[^A-Z\\d]+", ""));
+		StringBuilder sb = new StringBuilder(userCode.toUpperCase(Locale.ENGLISH).replaceAll("[^A-Z\\d]+", ""));
 		Assert.isTrue(sb.length() == 8, "userCode must be exactly 8 alpha/numeric characters");
 		sb.insert(4, '-');
 		return sb.toString();
 	}
 
 	static boolean validateUserCode(String userCode) {
-		return (userCode != null && userCode.toUpperCase().replaceAll("[^A-Z\\d]+", "").length() == 8);
+		return (userCode != null && userCode.toUpperCase(Locale.ENGLISH).replaceAll("[^A-Z\\d]+", "").length() == 8);
 	}
 
 }

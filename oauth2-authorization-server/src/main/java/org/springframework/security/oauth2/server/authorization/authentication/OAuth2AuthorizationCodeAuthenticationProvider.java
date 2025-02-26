@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2024 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -144,8 +144,9 @@ public final class OAuth2AuthorizationCodeAuthenticationProvider implements Auth
 			if (!authorizationCode.isInvalidated()) {
 				// Invalidate the authorization code given that a different client is
 				// attempting to use it
-				authorization = OAuth2AuthenticationProviderUtils.invalidate(authorization,
-						authorizationCode.getToken());
+				authorization = OAuth2Authorization.from(authorization)
+					.invalidate(authorizationCode.getToken())
+					.build();
 				this.authorizationService.save(authorization);
 				if (this.logger.isWarnEnabled()) {
 					this.logger.warn(LogMessage.format("Invalidated authorization code used by registered client '%s'",
@@ -172,7 +173,7 @@ public final class OAuth2AuthorizationCodeAuthenticationProvider implements Auth
 				if (token != null) {
 					// Invalidate the access (and refresh) token as the client is
 					// attempting to use the authorization code more than once
-					authorization = OAuth2AuthenticationProviderUtils.invalidate(authorization, token.getToken());
+					authorization = OAuth2Authorization.from(authorization).invalidate(token.getToken()).build();
 					this.authorizationService.save(authorization);
 					if (this.logger.isWarnEnabled()) {
 						this.logger.warn(LogMessage.format(
@@ -183,6 +184,9 @@ public final class OAuth2AuthorizationCodeAuthenticationProvider implements Auth
 			}
 			throw new OAuth2AuthenticationException(OAuth2ErrorCodes.INVALID_GRANT);
 		}
+
+		// Verify the DPoP Proof (if available)
+		Jwt dPoPProof = DPoPProofVerifier.verifyIfAvailable(authorizationCodeAuthentication);
 
 		if (this.logger.isTraceEnabled()) {
 			this.logger.trace("Validated token request parameters");
@@ -200,6 +204,9 @@ public final class OAuth2AuthorizationCodeAuthenticationProvider implements Auth
 				.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
 				.authorizationGrant(authorizationCodeAuthentication);
 		// @formatter:on
+		if (dPoPProof != null) {
+			tokenContextBuilder.put(OAuth2TokenContext.DPOP_PROOF_KEY, dPoPProof);
+		}
 
 		OAuth2Authorization.Builder authorizationBuilder = OAuth2Authorization.from(authorization);
 
@@ -284,10 +291,10 @@ public final class OAuth2AuthorizationCodeAuthenticationProvider implements Auth
 			idToken = null;
 		}
 
-		authorization = authorizationBuilder.build();
-
 		// Invalidate the authorization code as it can only be used once
-		authorization = OAuth2AuthenticationProviderUtils.invalidate(authorization, authorizationCode.getToken());
+		authorizationBuilder.invalidate(authorizationCode.getToken());
+
+		authorization = authorizationBuilder.build();
 
 		this.authorizationService.save(authorization);
 

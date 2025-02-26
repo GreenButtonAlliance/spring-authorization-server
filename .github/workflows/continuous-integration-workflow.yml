@@ -8,6 +8,9 @@ on:
     - cron: '0 10 * * *' # Once per day at 10am UTC
   workflow_dispatch:
 
+env:
+  DEVELOCITY_ACCESS_KEY: ${{ secrets.GRADLE_ENTERPRISE_SECRET_ACCESS_KEY }}
+
 jobs:
   build:
     name: Build
@@ -25,7 +28,7 @@ jobs:
     name: Test Against Snapshots
     uses: spring-io/spring-security-release-tools/.github/workflows/test.yml@v1
     with:
-      test-args: --refresh-dependencies --stacktrace -PforceMavenRepositories=snapshot -PspringFrameworkVersion=6.1.+ -PspringSecurityVersion=6.3.+
+      test-args: --refresh-dependencies --stacktrace -PforceMavenRepositories=snapshot -PspringFrameworkVersion=6.2.+ -PspringSecurityVersion=6.4.+
     secrets: inherit
   deploy-artifacts:
     name: Deploy Artifacts

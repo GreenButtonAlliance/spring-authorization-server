@@ -73,7 +73,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
  */
 public class OAuth2DeviceAuthorizationEndpointFilterTests {
 
-	private static final String ISSUER_URI = "https://provider.com";
+	private static final String ISSUER_URI = "https://provider.com:8090";
 
 	private static final String REMOTE_ADDRESS = "remote-address";
 
@@ -239,6 +239,33 @@ public class OAuth2DeviceAuthorizationEndpointFilterTests {
 		OAuth2UserCode userCode = deviceAuthorizationResponse.getUserCode();
 		assertThat(userCode.getTokenValue()).isEqualTo(USER_CODE);
 		assertThat(deviceCode.getExpiresAt()).isAfter(deviceCode.getIssuedAt());
+	}
+
+	// gh-1714
+	@Test
+	public void doFilterWhenDeviceAuthorizationRequestWithContextPathThenVerificationUriIncludesContextPath()
+			throws Exception {
+		Authentication authenticationResult = createAuthentication();
+		given(this.authenticationManager.authenticate(any(Authentication.class))).willReturn(authenticationResult);
+
+		Authentication clientPrincipal = (Authentication) authenticationResult.getPrincipal();
+		mockSecurityContext(clientPrincipal);
+
+		MockHttpServletRequest request = createRequest();
+		request.setContextPath("/contextPath");
+		MockHttpServletResponse response = new MockHttpServletResponse();
+		FilterChain filterChain = mock(FilterChain.class);
+		this.filter.doFilter(request, response, filterChain);
+		assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+
+		verify(this.authenticationManager).authenticate(any(OAuth2DeviceAuthorizationRequestAuthenticationToken.class));
+		verifyNoInteractions(filterChain);
+
+		OAuth2DeviceAuthorizationResponse deviceAuthorizationResponse = readDeviceAuthorizationResponse(response);
+		String verificationUri = ISSUER_URI + "/contextPath" + VERIFICATION_URI;
+		assertThat(deviceAuthorizationResponse.getVerificationUri()).isEqualTo(verificationUri);
+		assertThat(deviceAuthorizationResponse.getVerificationUriComplete())
+			.isEqualTo("%s?%s=%s".formatted(verificationUri, OAuth2ParameterNames.USER_CODE, USER_CODE));
 	}
 
 	@Test
@@ -417,7 +444,7 @@ public class OAuth2DeviceAuthorizationEndpointFilterTests {
 		request.setRemoteAddr(REMOTE_ADDRESS);
 		request.setScheme("https");
 		request.setServerName("provider.com");
-		request.setServerPort(-1);
+		request.setServerPort(8090);
 		return request;
 	}
 

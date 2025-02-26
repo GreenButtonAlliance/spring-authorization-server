@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2024 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,10 +18,13 @@ package org.springframework.security.oauth2.server.authorization.config.annotati
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.Principal;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.source.JWKSource;
@@ -70,8 +73,13 @@ import org.springframework.security.oauth2.core.endpoint.OAuth2ParameterNames;
 import org.springframework.security.oauth2.core.http.converter.OAuth2AccessTokenResponseHttpMessageConverter;
 import org.springframework.security.oauth2.jose.TestJwks;
 import org.springframework.security.oauth2.jose.TestKeys;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
+import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.OAuth2Authorization;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationService;
@@ -91,7 +99,6 @@ import org.springframework.security.oauth2.server.authorization.token.JwtEncodin
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationConverter;
-import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.util.Assert;
@@ -127,6 +134,8 @@ public class OAuth2RefreshTokenGrantTests {
 
 	private static NimbusJwtDecoder jwtDecoder;
 
+	private static NimbusJwtEncoder dPoPProofJwtEncoder;
+
 	private static HttpMessageConverter<OAuth2AccessTokenResponse> accessTokenHttpResponseConverter = new OAuth2AccessTokenResponseHttpMessageConverter();
 
 	public final SpringTestContext spring = new SpringTestContext();
@@ -148,6 +157,9 @@ public class OAuth2RefreshTokenGrantTests {
 		JWKSet jwkSet = new JWKSet(TestJwks.DEFAULT_RSA_JWK);
 		jwkSource = (jwkSelector, securityContext) -> jwkSelector.select(jwkSet);
 		jwtDecoder = NimbusJwtDecoder.withPublicKey(TestKeys.DEFAULT_PUBLIC_KEY).build();
+		JWKSet clientJwkSet = new JWKSet(TestJwks.DEFAULT_EC_JWK);
+		JWKSource<SecurityContext> clientJwkSource = (jwkSelector, securityContext) -> jwkSelector.select(clientJwkSet);
+		dPoPProofJwtEncoder = new NimbusJwtEncoder(clientJwkSource);
 		db = new EmbeddedDatabaseBuilder().generateUniqueName(true)
 			.setType(EmbeddedDatabaseType.HSQL)
 			.setScriptEncoding("UTF-8")
@@ -267,6 +279,54 @@ public class OAuth2RefreshTokenGrantTests {
 			.andExpect(jsonPath("$.scope").isNotEmpty());
 	}
 
+	@Test
+	public void requestWhenRefreshTokenRequestWithDPoPProofThenReturnDPoPBoundAccessToken() throws Exception {
+		this.spring.register(AuthorizationServerConfiguration.class).autowire();
+
+		RegisteredClient registeredClient = TestRegisteredClients.registeredClient().build();
+		this.registeredClientRepository.save(registeredClient);
+
+		OAuth2Authorization authorization = TestOAuth2Authorizations.authorization(registeredClient).build();
+		this.authorizationService.save(authorization);
+
+		String tokenEndpointUri = "http://localhost" + DEFAULT_TOKEN_ENDPOINT_URI;
+		String dPoPProof = generateDPoPProof(tokenEndpointUri);
+
+		this.mvc
+			.perform(post(DEFAULT_TOKEN_ENDPOINT_URI).params(getRefreshTokenRequestParameters(authorization))
+				.header(HttpHeaders.AUTHORIZATION,
+						"Basic " + encodeBasicAuth(registeredClient.getClientId(), registeredClient.getClientSecret()))
+				.header(OAuth2AccessToken.TokenType.DPOP.getValue(), dPoPProof))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.token_type").value(OAuth2AccessToken.TokenType.DPOP.getValue()));
+
+		authorization = this.authorizationService.findById(authorization.getId());
+		assertThat(authorization.getAccessToken().getClaims()).containsKey("cnf");
+		@SuppressWarnings("unchecked")
+		Map<String, Object> cnfClaims = (Map<String, Object>) authorization.getAccessToken().getClaims().get("cnf");
+		assertThat(cnfClaims).containsKey("jkt");
+	}
+
+	private static String generateDPoPProof(String tokenEndpointUri) {
+		// @formatter:off
+		Map<String, Object> publicJwk = TestJwks.DEFAULT_EC_JWK
+				.toPublicJWK()
+				.toJSONObject();
+		JwsHeader jwsHeader = JwsHeader.with(SignatureAlgorithm.ES256)
+				.type("dpop+jwt")
+				.jwk(publicJwk)
+				.build();
+		JwtClaimsSet claims = JwtClaimsSet.builder()
+				.issuedAt(Instant.now())
+				.claim("htm", "POST")
+				.claim("htu", tokenEndpointUri)
+				.id(UUID.randomUUID().toString())
+				.build();
+		// @formatter:on
+		Jwt jwt = dPoPProofJwtEncoder.encode(JwtEncoderParameters.from(jwsHeader, claims));
+		return jwt.getTokenValue();
+	}
+
 	private static MultiValueMap<String, String> getRefreshTokenRequestParameters(OAuth2Authorization authorization) {
 		MultiValueMap<String, String> parameters = new LinkedMultiValueMap<>();
 		parameters.set(OAuth2ParameterNames.GRANT_TYPE, AuthorizationGrantType.REFRESH_TOKEN.getValue());
@@ -373,24 +433,21 @@ public class OAuth2RefreshTokenGrantTests {
 				HttpSecurity http, RegisteredClientRepository registeredClientRepository) throws Exception {
 
 			OAuth2AuthorizationServerConfigurer authorizationServerConfigurer =
-					new OAuth2AuthorizationServerConfigurer();
-			authorizationServerConfigurer
-					.clientAuthentication((clientAuthentication) ->
-							clientAuthentication
-									.authenticationConverter(
-											new PublicClientRefreshTokenAuthenticationConverter())
-									.authenticationProvider(
-											new PublicClientRefreshTokenAuthenticationProvider(registeredClientRepository))
-					);
-			RequestMatcher endpointsMatcher = authorizationServerConfigurer.getEndpointsMatcher();
-
+					OAuth2AuthorizationServerConfigurer.authorizationServer();
 			http
-					.securityMatcher(endpointsMatcher)
+					.securityMatcher(authorizationServerConfigurer.getEndpointsMatcher())
+					.with(authorizationServerConfigurer, (authorizationServer) ->
+							authorizationServer
+									.clientAuthentication((clientAuthentication) ->
+											clientAuthentication
+													.authenticationConverter(
+															new PublicClientRefreshTokenAuthenticationConverter())
+													.authenticationProvider(
+															new PublicClientRefreshTokenAuthenticationProvider(registeredClientRepository)))
+					)
 					.authorizeHttpRequests((authorize) ->
 							authorize.anyRequest().authenticated()
-					)
-					.csrf((csrf) -> csrf.ignoringRequestMatchers(endpointsMatcher))
-					.apply(authorizationServerConfigurer);
+					);
 			return http.build();
 		}
 		// @formatter:on
