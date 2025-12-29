@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2024 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -132,9 +132,8 @@ public final class OAuth2ClientAuthenticationFilter extends OncePerRequestFilter
 
 		try {
 			Authentication authenticationRequest = this.authenticationConverter.convert(request);
-			if (authenticationRequest instanceof AbstractAuthenticationToken) {
-				((AbstractAuthenticationToken) authenticationRequest)
-					.setDetails(this.authenticationDetailsSource.buildDetails(request));
+			if (authenticationRequest instanceof AbstractAuthenticationToken authenticationToken) {
+				authenticationToken.setDetails(this.authenticationDetailsSource.buildDetails(request));
 			}
 			if (authenticationRequest != null) {
 				validateClientIdentifier(authenticationRequest);
@@ -193,10 +192,6 @@ public final class OAuth2ClientAuthenticationFilter extends OncePerRequestFilter
 		SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
 		securityContext.setAuthentication(authentication);
 		SecurityContextHolder.setContext(securityContext);
-		if (this.logger.isDebugEnabled()) {
-			this.logger.debug(LogMessage.format("Set SecurityContextHolder authentication to %s",
-					authentication.getClass().getSimpleName()));
-		}
 	}
 
 	private void onAuthenticationFailure(HttpServletRequest request, HttpServletResponse response,

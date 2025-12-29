@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2023 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -77,12 +77,10 @@ public final class FederatedIdentityIdTokenCustomizer implements OAuth2TokenCust
 
 	private Map<String, Object> extractClaims(Authentication principal) {
 		Map<String, Object> claims;
-		if (principal.getPrincipal() instanceof OidcUser) {
-			OidcUser oidcUser = (OidcUser) principal.getPrincipal();
+		if (principal.getPrincipal() instanceof OidcUser oidcUser) {
 			OidcIdToken idToken = oidcUser.getIdToken();
 			claims = idToken.getClaims();
-		} else if (principal.getPrincipal() instanceof OAuth2User) {
-			OAuth2User oauth2User = (OAuth2User) principal.getPrincipal();
+		} else if (principal.getPrincipal() instanceof OAuth2User oauth2User) {
 			claims = oauth2User.getAttributes();
 		} else {
 			claims = Collections.emptyMap();

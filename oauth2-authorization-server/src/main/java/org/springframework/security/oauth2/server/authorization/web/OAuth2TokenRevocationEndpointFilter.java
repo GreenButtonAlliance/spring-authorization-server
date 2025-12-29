@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2024 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ import org.springframework.security.web.authentication.AuthenticationConverter;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.util.Assert;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -98,8 +98,8 @@ public final class OAuth2TokenRevocationEndpointFilter extends OncePerRequestFil
 		Assert.notNull(authenticationManager, "authenticationManager cannot be null");
 		Assert.hasText(tokenRevocationEndpointUri, "tokenRevocationEndpointUri cannot be empty");
 		this.authenticationManager = authenticationManager;
-		this.tokenRevocationEndpointMatcher = new AntPathRequestMatcher(tokenRevocationEndpointUri,
-				HttpMethod.POST.name());
+		this.tokenRevocationEndpointMatcher = PathPatternRequestMatcher.withDefaults()
+			.matcher(HttpMethod.POST, tokenRevocationEndpointUri);
 		this.authenticationConverter = new OAuth2TokenRevocationAuthenticationConverter();
 	}
 
@@ -114,9 +114,8 @@ public final class OAuth2TokenRevocationEndpointFilter extends OncePerRequestFil
 
 		try {
 			Authentication tokenRevocationAuthentication = this.authenticationConverter.convert(request);
-			if (tokenRevocationAuthentication instanceof AbstractAuthenticationToken) {
-				((AbstractAuthenticationToken) tokenRevocationAuthentication)
-					.setDetails(this.authenticationDetailsSource.buildDetails(request));
+			if (tokenRevocationAuthentication instanceof AbstractAuthenticationToken authenticationToken) {
+				authenticationToken.setDetails(this.authenticationDetailsSource.buildDetails(request));
 			}
 
 			Authentication tokenRevocationAuthenticationResult = this.authenticationManager

@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2024 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,9 +46,9 @@ import org.springframework.security.web.authentication.AuthenticationConverter;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.RedirectUrlBuilder;
 import org.springframework.security.web.util.UrlUtils;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.util.Assert;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -113,8 +113,8 @@ public final class OAuth2DeviceAuthorizationEndpointFilter extends OncePerReques
 		Assert.notNull(authenticationManager, "authenticationManager cannot be null");
 		Assert.hasText(deviceAuthorizationEndpointUri, "deviceAuthorizationEndpointUri cannot be empty");
 		this.authenticationManager = authenticationManager;
-		this.deviceAuthorizationEndpointMatcher = new AntPathRequestMatcher(deviceAuthorizationEndpointUri,
-				HttpMethod.POST.name());
+		this.deviceAuthorizationEndpointMatcher = PathPatternRequestMatcher.withDefaults()
+			.matcher(HttpMethod.POST, deviceAuthorizationEndpointUri);
 		this.authenticationConverter = new OAuth2DeviceAuthorizationRequestAuthenticationConverter();
 	}
 
@@ -129,9 +129,8 @@ public final class OAuth2DeviceAuthorizationEndpointFilter extends OncePerReques
 
 		try {
 			Authentication deviceAuthorizationRequestAuthentication = this.authenticationConverter.convert(request);
-			if (deviceAuthorizationRequestAuthentication instanceof AbstractAuthenticationToken) {
-				((AbstractAuthenticationToken) deviceAuthorizationRequestAuthentication)
-					.setDetails(this.authenticationDetailsSource.buildDetails(request));
+			if (deviceAuthorizationRequestAuthentication instanceof AbstractAuthenticationToken authenticationToken) {
+				authenticationToken.setDetails(this.authenticationDetailsSource.buildDetails(request));
 			}
 
 			Authentication deviceAuthorizationRequestAuthenticationResult = this.authenticationManager

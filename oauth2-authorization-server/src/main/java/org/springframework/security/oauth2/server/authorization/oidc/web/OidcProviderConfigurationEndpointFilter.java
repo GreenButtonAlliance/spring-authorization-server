@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2024 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,13 +31,14 @@ import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationResponseType;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
+import org.springframework.security.oauth2.jose.jws.JwsAlgorithms;
 import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
 import org.springframework.security.oauth2.server.authorization.context.AuthorizationServerContext;
 import org.springframework.security.oauth2.server.authorization.context.AuthorizationServerContextHolder;
 import org.springframework.security.oauth2.server.authorization.oidc.OidcProviderConfiguration;
 import org.springframework.security.oauth2.server.authorization.oidc.http.converter.OidcProviderConfigurationHttpMessageConverter;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.util.Assert;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -100,6 +101,8 @@ public final class OidcProviderConfigurationEndpointFilter extends OncePerReques
 		OidcProviderConfiguration.Builder providerConfiguration = OidcProviderConfiguration.builder()
 			.issuer(issuer)
 			.authorizationEndpoint(asUrl(issuer, authorizationServerSettings.getAuthorizationEndpoint()))
+			.pushedAuthorizationRequestEndpoint(
+					asUrl(issuer, authorizationServerSettings.getPushedAuthorizationRequestEndpoint()))
 			.deviceAuthorizationEndpoint(asUrl(issuer, authorizationServerSettings.getDeviceAuthorizationEndpoint()))
 			.tokenEndpoint(asUrl(issuer, authorizationServerSettings.getTokenEndpoint()))
 			.tokenEndpointAuthenticationMethods(clientAuthenticationMethods())
@@ -118,6 +121,7 @@ public final class OidcProviderConfigurationEndpointFilter extends OncePerReques
 			.tokenIntrospectionEndpointAuthenticationMethods(clientAuthenticationMethods())
 			.codeChallengeMethod("S256")
 			.tlsClientCertificateBoundAccessTokens(true)
+			.dPoPSigningAlgorithms(dPoPSigningAlgorithms())
 			.subjectType("public")
 			.idTokenSigningAlgorithm(SignatureAlgorithm.RS256.getName())
 			.scope(OidcScopes.OPENID);
@@ -130,10 +134,10 @@ public final class OidcProviderConfigurationEndpointFilter extends OncePerReques
 	}
 
 	private static RequestMatcher createRequestMatcher() {
-		final RequestMatcher defaultRequestMatcher = new AntPathRequestMatcher(
-				DEFAULT_OIDC_PROVIDER_CONFIGURATION_ENDPOINT_URI, HttpMethod.GET.name());
-		final RequestMatcher multipleIssuersRequestMatcher = new AntPathRequestMatcher(
-				"/**" + DEFAULT_OIDC_PROVIDER_CONFIGURATION_ENDPOINT_URI, HttpMethod.GET.name());
+		final RequestMatcher defaultRequestMatcher = PathPatternRequestMatcher.withDefaults()
+			.matcher(HttpMethod.GET, DEFAULT_OIDC_PROVIDER_CONFIGURATION_ENDPOINT_URI);
+		final RequestMatcher multipleIssuersRequestMatcher = PathPatternRequestMatcher.withDefaults()
+			.matcher(HttpMethod.GET, "/**" + DEFAULT_OIDC_PROVIDER_CONFIGURATION_ENDPOINT_URI);
 		return (request) -> AuthorizationServerContextHolder.getContext()
 			.getAuthorizationServerSettings()
 			.isMultipleIssuersAllowed() ? multipleIssuersRequestMatcher.matches(request)
@@ -148,6 +152,20 @@ public final class OidcProviderConfigurationEndpointFilter extends OncePerReques
 			authenticationMethods.add(ClientAuthenticationMethod.PRIVATE_KEY_JWT.getValue());
 			authenticationMethods.add(ClientAuthenticationMethod.TLS_CLIENT_AUTH.getValue());
 			authenticationMethods.add(ClientAuthenticationMethod.SELF_SIGNED_TLS_CLIENT_AUTH.getValue());
+		};
+	}
+
+	private static Consumer<List<String>> dPoPSigningAlgorithms() {
+		return (algs) -> {
+			algs.add(JwsAlgorithms.RS256);
+			algs.add(JwsAlgorithms.RS384);
+			algs.add(JwsAlgorithms.RS512);
+			algs.add(JwsAlgorithms.PS256);
+			algs.add(JwsAlgorithms.PS384);
+			algs.add(JwsAlgorithms.PS512);
+			algs.add(JwsAlgorithms.ES256);
+			algs.add(JwsAlgorithms.ES384);
+			algs.add(JwsAlgorithms.ES512);
 		};
 	}
 

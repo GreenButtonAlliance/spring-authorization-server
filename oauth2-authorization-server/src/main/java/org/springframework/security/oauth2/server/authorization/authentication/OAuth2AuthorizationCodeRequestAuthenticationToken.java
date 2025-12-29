@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2022 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,13 @@
  */
 package org.springframework.security.oauth2.server.authorization.authentication;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
+import java.io.Serial;
 import java.util.Map;
 import java.util.Set;
 
 import org.springframework.lang.Nullable;
-import org.springframework.security.authentication.AbstractAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationCode;
-import org.springframework.security.oauth2.server.authorization.util.SpringAuthorizationServerVersion;
 import org.springframework.util.Assert;
 
 /**
@@ -37,23 +33,11 @@ import org.springframework.util.Assert;
  * @see OAuth2AuthorizationCodeRequestAuthenticationProvider
  * @see OAuth2AuthorizationConsentAuthenticationProvider
  */
-public class OAuth2AuthorizationCodeRequestAuthenticationToken extends AbstractAuthenticationToken {
+public class OAuth2AuthorizationCodeRequestAuthenticationToken
+		extends AbstractOAuth2AuthorizationCodeRequestAuthenticationToken {
 
-	private static final long serialVersionUID = SpringAuthorizationServerVersion.SERIAL_VERSION_UID;
-
-	private final String authorizationUri;
-
-	private final String clientId;
-
-	private final Authentication principal;
-
-	private final String redirectUri;
-
-	private final String state;
-
-	private final Set<String> scopes;
-
-	private final Map<String, Object> additionalParameters;
+	@Serial
+	private static final long serialVersionUID = -1946164725241393094L;
 
 	private final OAuth2AuthorizationCode authorizationCode;
 
@@ -72,18 +56,7 @@ public class OAuth2AuthorizationCodeRequestAuthenticationToken extends AbstractA
 	public OAuth2AuthorizationCodeRequestAuthenticationToken(String authorizationUri, String clientId,
 			Authentication principal, @Nullable String redirectUri, @Nullable String state,
 			@Nullable Set<String> scopes, @Nullable Map<String, Object> additionalParameters) {
-		super(Collections.emptyList());
-		Assert.hasText(authorizationUri, "authorizationUri cannot be empty");
-		Assert.hasText(clientId, "clientId cannot be empty");
-		Assert.notNull(principal, "principal cannot be null");
-		this.authorizationUri = authorizationUri;
-		this.clientId = clientId;
-		this.principal = principal;
-		this.redirectUri = redirectUri;
-		this.state = state;
-		this.scopes = Collections.unmodifiableSet((scopes != null) ? new HashSet<>(scopes) : Collections.emptySet());
-		this.additionalParameters = Collections.unmodifiableMap(
-				(additionalParameters != null) ? new HashMap<>(additionalParameters) : Collections.emptyMap());
+		super(authorizationUri, clientId, principal, redirectUri, state, scopes, additionalParameters);
 		this.authorizationCode = null;
 	}
 
@@ -102,81 +75,10 @@ public class OAuth2AuthorizationCodeRequestAuthenticationToken extends AbstractA
 	public OAuth2AuthorizationCodeRequestAuthenticationToken(String authorizationUri, String clientId,
 			Authentication principal, OAuth2AuthorizationCode authorizationCode, @Nullable String redirectUri,
 			@Nullable String state, @Nullable Set<String> scopes) {
-		super(Collections.emptyList());
-		Assert.hasText(authorizationUri, "authorizationUri cannot be empty");
-		Assert.hasText(clientId, "clientId cannot be empty");
-		Assert.notNull(principal, "principal cannot be null");
+		super(authorizationUri, clientId, principal, redirectUri, state, scopes, null);
 		Assert.notNull(authorizationCode, "authorizationCode cannot be null");
-		this.authorizationUri = authorizationUri;
-		this.clientId = clientId;
-		this.principal = principal;
 		this.authorizationCode = authorizationCode;
-		this.redirectUri = redirectUri;
-		this.state = state;
-		this.scopes = Collections.unmodifiableSet((scopes != null) ? new HashSet<>(scopes) : Collections.emptySet());
-		this.additionalParameters = Collections.emptyMap();
 		setAuthenticated(true);
-	}
-
-	@Override
-	public Object getPrincipal() {
-		return this.principal;
-	}
-
-	@Override
-	public Object getCredentials() {
-		return "";
-	}
-
-	/**
-	 * Returns the authorization URI.
-	 * @return the authorization URI
-	 */
-	public String getAuthorizationUri() {
-		return this.authorizationUri;
-	}
-
-	/**
-	 * Returns the client identifier.
-	 * @return the client identifier
-	 */
-	public String getClientId() {
-		return this.clientId;
-	}
-
-	/**
-	 * Returns the redirect uri.
-	 * @return the redirect uri
-	 */
-	@Nullable
-	public String getRedirectUri() {
-		return this.redirectUri;
-	}
-
-	/**
-	 * Returns the state.
-	 * @return the state
-	 */
-	@Nullable
-	public String getState() {
-		return this.state;
-	}
-
-	/**
-	 * Returns the requested (or authorized) scope(s).
-	 * @return the requested (or authorized) scope(s), or an empty {@code Set} if not
-	 * available
-	 */
-	public Set<String> getScopes() {
-		return this.scopes;
-	}
-
-	/**
-	 * Returns the additional parameters.
-	 * @return the additional parameters, or an empty {@code Map} if not available
-	 */
-	public Map<String, Object> getAdditionalParameters() {
-		return this.additionalParameters;
 	}
 
 	/**

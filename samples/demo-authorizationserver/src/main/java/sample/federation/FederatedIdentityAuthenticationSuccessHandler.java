@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2023 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,10 +50,10 @@ public final class FederatedIdentityAuthenticationSuccessHandler implements Auth
 	@Override
 	public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
 		if (authentication instanceof OAuth2AuthenticationToken) {
-			if (authentication.getPrincipal() instanceof OidcUser) {
-				this.oidcUserHandler.accept((OidcUser) authentication.getPrincipal());
-			} else if (authentication.getPrincipal() instanceof OAuth2User) {
-				this.oauth2UserHandler.accept((OAuth2User) authentication.getPrincipal());
+			if (authentication.getPrincipal() instanceof OidcUser oidcUser) {
+				this.oidcUserHandler.accept(oidcUser);
+			} else if (authentication.getPrincipal() instanceof OAuth2User oauth2User) {
+				this.oauth2UserHandler.accept(oauth2User);
 			}
 		}
 

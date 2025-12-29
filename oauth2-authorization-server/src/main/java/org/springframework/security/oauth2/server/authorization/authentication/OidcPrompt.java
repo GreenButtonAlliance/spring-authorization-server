@@ -13,29 +13,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.springframework.security.oauth2.server.authorization.util;
+package org.springframework.security.oauth2.server.authorization.authentication;
 
 /**
- * Internal class used for serialization across Spring Authorization Server classes.
+ * The values defined for the "prompt" parameter for the OpenID Connect 1.0 Authentication
+ * Request.
  *
- * @author Anoop Garlapati
- * @since 0.0.1
+ * @author Joe Grandja
+ * @since 1.5
  */
-public final class SpringAuthorizationServerVersion {
+final class OidcPrompt {
 
-	private static final int MAJOR = 1;
+	static final String NONE = "none";
 
-	private static final int MINOR = 5;
+	static final String LOGIN = "login";
 
-	private static final int PATCH = 0;
+	static final String CONSENT = "consent";
 
-	/**
-	 * Global Serialization value for Spring Authorization Server classes.
-	 */
-	public static final long SERIAL_VERSION_UID = getVersion().hashCode();
+	static final String SELECT_ACCOUNT = "select_account";
 
-	public static String getVersion() {
-		return MAJOR + "." + MINOR + "." + PATCH;
+	private OidcPrompt() {
 	}
 
 }

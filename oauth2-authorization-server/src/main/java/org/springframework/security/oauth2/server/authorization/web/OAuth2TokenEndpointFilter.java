@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2024 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -53,7 +53,7 @@ import org.springframework.security.web.authentication.AuthenticationFailureHand
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.DelegatingAuthenticationConverter;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
-import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.util.Assert;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -129,7 +129,7 @@ public final class OAuth2TokenEndpointFilter extends OncePerRequestFilter {
 		Assert.notNull(authenticationManager, "authenticationManager cannot be null");
 		Assert.hasText(tokenEndpointUri, "tokenEndpointUri cannot be empty");
 		this.authenticationManager = authenticationManager;
-		this.tokenEndpointMatcher = new AntPathRequestMatcher(tokenEndpointUri, HttpMethod.POST.name());
+		this.tokenEndpointMatcher = PathPatternRequestMatcher.withDefaults().matcher(HttpMethod.POST, tokenEndpointUri);
 		// @formatter:off
 		this.authenticationConverter = new DelegatingAuthenticationConverter(
 				Arrays.asList(
@@ -161,9 +161,8 @@ public final class OAuth2TokenEndpointFilter extends OncePerRequestFilter {
 			if (authorizationGrantAuthentication == null) {
 				throwError(OAuth2ErrorCodes.UNSUPPORTED_GRANT_TYPE, OAuth2ParameterNames.GRANT_TYPE);
 			}
-			if (authorizationGrantAuthentication instanceof AbstractAuthenticationToken) {
-				((AbstractAuthenticationToken) authorizationGrantAuthentication)
-					.setDetails(this.authenticationDetailsSource.buildDetails(request));
+			if (authorizationGrantAuthentication instanceof AbstractAuthenticationToken authenticationToken) {
+				authenticationToken.setDetails(this.authenticationDetailsSource.buildDetails(request));
 			}
 
 			OAuth2AccessTokenAuthenticationToken accessTokenAuthentication = (OAuth2AccessTokenAuthenticationToken) this.authenticationManager

@@ -1,5 +1,5 @@
 /*
- * Copyright 2020-2024 the original author or authors.
+ * Copyright 2020-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -96,6 +96,7 @@ public class OAuth2AuthorizationServerMetadataEndpointFilterTests {
 	public void doFilterWhenAuthorizationServerMetadataRequestThenMetadataResponse() throws Exception {
 		String issuer = "https://example.com";
 		String authorizationEndpoint = "/oauth2/v1/authorize";
+		String pushedAuthorizationRequestEndpoint = "/oauth2/v1/par";
 		String tokenEndpoint = "/oauth2/v1/token";
 		String jwkSetEndpoint = "/oauth2/v1/jwks";
 		String tokenRevocationEndpoint = "/oauth2/v1/revoke";
@@ -104,6 +105,7 @@ public class OAuth2AuthorizationServerMetadataEndpointFilterTests {
 		AuthorizationServerSettings authorizationServerSettings = AuthorizationServerSettings.builder()
 			.issuer(issuer)
 			.authorizationEndpoint(authorizationEndpoint)
+			.pushedAuthorizationRequestEndpoint(pushedAuthorizationRequestEndpoint)
 			.tokenEndpoint(tokenEndpoint)
 			.jwkSetEndpoint(jwkSetEndpoint)
 			.tokenRevocationEndpoint(tokenRevocationEndpoint)
@@ -128,6 +130,8 @@ public class OAuth2AuthorizationServerMetadataEndpointFilterTests {
 		assertThat(authorizationServerMetadataResponse)
 			.contains("\"authorization_endpoint\":\"https://example.com/oauth2/v1/authorize\"");
 		assertThat(authorizationServerMetadataResponse)
+			.contains("\"pushed_authorization_request_endpoint\":\"https://example.com/oauth2/v1/par\"");
+		assertThat(authorizationServerMetadataResponse)
 			.contains("\"token_endpoint\":\"https://example.com/oauth2/v1/token\"");
 		assertThat(authorizationServerMetadataResponse).contains(
 				"\"token_endpoint_auth_methods_supported\":[\"client_secret_basic\",\"client_secret_post\",\"client_secret_jwt\",\"private_key_jwt\",\"tls_client_auth\",\"self_signed_tls_client_auth\"]");
@@ -145,6 +149,8 @@ public class OAuth2AuthorizationServerMetadataEndpointFilterTests {
 				"\"introspection_endpoint_auth_methods_supported\":[\"client_secret_basic\",\"client_secret_post\",\"client_secret_jwt\",\"private_key_jwt\",\"tls_client_auth\",\"self_signed_tls_client_auth\"]");
 		assertThat(authorizationServerMetadataResponse).contains("\"code_challenge_methods_supported\":[\"S256\"]");
 		assertThat(authorizationServerMetadataResponse).contains("\"tls_client_certificate_bound_access_tokens\":true");
+		assertThat(authorizationServerMetadataResponse).contains(
+				"\"dpop_signing_alg_values_supported\":[\"RS256\",\"RS384\",\"RS512\",\"PS256\",\"PS384\",\"PS512\",\"ES256\",\"ES384\",\"ES512\"]");
 	}
 
 	@Test
